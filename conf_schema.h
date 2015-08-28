@@ -412,8 +412,8 @@ ATOM(uint32_t,              interval,   500, uint32_nonzero,, "Interval between 
 END_STRUCT
 
 STRUCT(rhizome_filter)
-ATOM(int32_t,               maxfilesize,     0, int32_nonneg,, "Maximum filesize to announce")
-ATOM(int32_t,               announcetime, 0, int32_nonneg,, "Time a file is announced after insert")
+ATOM(uint64_t,              maxfilesize,     0, uint64_scaled,, "Maximum filesize to announce")
+ATOM(uint64_t,              announcetime, 0, uint64_scaled,, "Time a file is announced after insert")
 STRING(255,                 filename,     "", str_nonempty,, "Pattern to blacklist filter files by name")
 STRING(255,                 service,      "", str_nonempty,, "Pattern to blacklist filter services by name")
 ATOM(bool_t,                private,  0, boolean,, "If true, private Rhizome bundles are not announced")

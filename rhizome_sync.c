@@ -418,16 +418,52 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
 
   sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
   sqlite3_stmt *statement;
-  if (forwards){
-    statement = sqlite_prepare(&retry, "SELECT rowid, bar, name, inserttime FROM manifests WHERE rowid >= ? ORDER BY rowid ASC");
-  }else{
-    statement = sqlite_prepare(&retry, "SELECT rowid, bar, name, inserttime FROM manifests WHERE rowid <= ? ORDER BY rowid DESC");
+  
+  char* out = malloc(1024);
+  
+  // Create SQL-String
+  char *sqlstring = malloc(255);
+  sprintf(sqlstring, "SELECT rowid, bar, name, service FROM MANIFESTS WHERE");
+  
+  if (config.rhizome.filter.announcetime > 0){  
+     sprintf(sqlstring, "%s %s AND", sqlstring, "inserttime > ?");
   }
-
+  if (config.rhizome.filter.maxfilesize > 0){  
+     sprintf(sqlstring, "%s %s AND", sqlstring, "filesize < ?");
+  }
+  if (config.rhizome.filter.private) {
+    sprintf(sqlstring, "%s %s AND", sqlstring, "recipient is null");
+  }
+  if (config.rhizome.filter.public) {
+    sprintf(sqlstring, "%s %s AND", sqlstring, "recipient not null");
+  }
+  
+  if (forwards){
+    sprintf(sqlstring, "%s rowid >= ? ORDER BY rowid ASC", sqlstring);
+  } else {
+    sprintf(sqlstring, "%s rowid <= ? ORDER BY rowid DESC", sqlstring);
+  }
+  
+  WARN(sqlstring);
+  
+  statement = sqlite_prepare(&retry, sqlstring);
   if (!statement)
     return;
+  
+  // Bind Parameters
+  int bind_p = 1;
+  
+  if(config.rhizome.filter.announcetime > 0){  
+    time_ms_t min_inserttime = gettime_ms() - (config.rhizome.filter.announcetime * 1000);
+    sqlite3_bind_int64(statement, bind_p++, min_inserttime);
+  }
+  if (config.rhizome.filter.maxfilesize > 0){  
+    sqlite3_bind_int64(statement, bind_p++, config.rhizome.filter.maxfilesize);
+  }
 
-  sqlite3_bind_int64(statement, 1, token);
+  sqlite3_bind_int64(statement, bind_p++, token);
+
+  
   int count=0;
   uint64_t last=0;
 
@@ -436,41 +472,16 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
   ob_append_byte(b, MSG_TYPE_BARS);
   ob_checkpoint(b);
 
+  
   while(sqlite_step_retry(&retry, statement)==SQLITE_ROW){
     uint64_t rowid = sqlite3_column_int64(statement, 0);
     const unsigned char *bar = sqlite3_column_blob(statement, 1);
     size_t bar_size = sqlite3_column_bytes(statement, 1);
-    const char *name = (char*) sqlite3_column_text(statement, 2);
+    const unsigned char *name = sqlite3_column_blob(statement, 2);
+    const unsigned char *service = sqlite3_column_blob(statement, 3);
 
-    time_ms_t inserttime = sqlite3_column_int64(statement, 3);
-
-    time_ms_t now = gettime_ms();
-
-    char* out = malloc(1024);
-
-    // 1 hour!
-    int prop_time = config.rhizome.filters.announcetime * 1000;
-
-    if (inserttime < now - prop_time){
-        sprintf(out, "%s ist %i s her und wird nicht versand.", name, ((int) (now - inserttime)/1000));
-    	WARN(out);
-    	continue;
-    } else {
-    	sprintf(out, "%s ist %i s her und wird versand.", name, ((int) (now - inserttime)/1000));
-    	WARN(out);
-    }
-
-
-//    char* out = malloc(1024);
-//    sprintf(out, "%s wird nicht weitergeleitet", name);
-//
-//    if (name != NULL){
-//      if (strcmp(name,"test") == 0){
-//    	  WARN(out);
-//      	  continue;
-//      }
-//    }
-
+    sprintf(out, "Message %s (%s) is announced", name, service);
+    WARN(out);
 
 
     if (bar_size != RHIZOME_BAR_BYTES)
@@ -509,6 +520,8 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
       break;
   }
 
+  free(out);
+  
   if (token != HEAD_FLAG && token > max_token)
     max_token = token;
 
