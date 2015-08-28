@@ -411,6 +411,15 @@ ATOM(bool_t,                enable,     1, boolean,, "If true, Rhizome advertise
 ATOM(uint32_t,              interval,   500, uint32_nonzero,, "Interval between Rhizome advertisements")
 END_STRUCT
 
+STRUCT(rhizome_filters)
+ATOM(int32_t,               filesize,     0, int32_nonneg,, "Maximum filesize to announce")
+ATOM(int32_t,               announcetime, 0, int32_nonneg,, "Time a file is announced after insert")
+STRING(255,                 filename,     "*", str_nonempty,, "Pattern to filter files by name") //Blacklist || Whitelist ?
+STRING(255,                 service,      "*", str_nonempty,, "Pattern to filter services by name")
+ATOM(bool_t,                onlyprivate,  0, boolean,, "If true, only private Rhizome bundles announced")
+ATOM(bool_t,                onlypublic,   0, boolean,, "If true, only public Rhizome bundles are announced")
+END_STRUCT
+
 STRUCT(rhizome)
 ATOM(bool_t,                enable,         1, boolean,, "If true, server opens Rhizome database when starting")
 ATOM(bool_t,                fetch,          1, boolean,, "If false, no new bundles will be fetched from peers")
@@ -429,6 +438,7 @@ SUB_STRUCT(rhizome_api,     api,)
 SUB_STRUCT(rhizome_http,    http,)
 SUB_STRUCT(rhizome_mdp,     mdp,)
 SUB_STRUCT(rhizome_advertise, advertise,)
+SUB_STRUCT(rhizome_filters, filters,)
 END_STRUCT
 
 STRUCT(directory)

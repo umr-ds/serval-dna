@@ -26,6 +26,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "debug.h"
 #include "conf.h"
 
+#include <time.h>
+
 #define MSG_TYPE_BARS 0
 #define MSG_TYPE_REQ 1
 
@@ -417,9 +419,9 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
   sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
   sqlite3_stmt *statement;
   if (forwards){
-    statement = sqlite_prepare(&retry, "SELECT rowid, bar FROM manifests WHERE rowid >= ? ORDER BY rowid ASC");
+    statement = sqlite_prepare(&retry, "SELECT rowid, bar, name, inserttime FROM manifests WHERE rowid >= ? ORDER BY rowid ASC");
   }else{
-    statement = sqlite_prepare(&retry, "SELECT rowid, bar FROM manifests WHERE rowid <= ? ORDER BY rowid DESC");
+    statement = sqlite_prepare(&retry, "SELECT rowid, bar, name, inserttime FROM manifests WHERE rowid <= ? ORDER BY rowid DESC");
   }
 
   if (!statement)
@@ -438,6 +440,38 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
     uint64_t rowid = sqlite3_column_int64(statement, 0);
     const unsigned char *bar = sqlite3_column_blob(statement, 1);
     size_t bar_size = sqlite3_column_bytes(statement, 1);
+    const char *name = (char*) sqlite3_column_text(statement, 2);
+
+    time_ms_t inserttime = sqlite3_column_int64(statement, 3);
+
+    time_ms_t now = gettime_ms();
+
+    char* out = malloc(1024);
+
+    // 1 hour!
+    int prop_time = config.rhizome.filters.announcetime * 1000;
+
+    if (inserttime < now - prop_time){
+        sprintf(out, "%s ist %i s her und wird nicht versand.", name, ((int) (now - inserttime)/1000));
+    	WARN(out);
+    	continue;
+    } else {
+    	sprintf(out, "%s ist %i s her und wird versand.", name, ((int) (now - inserttime)/1000));
+    	WARN(out);
+    }
+
+
+//    char* out = malloc(1024);
+//    sprintf(out, "%s wird nicht weitergeleitet", name);
+//
+//    if (name != NULL){
+//      if (strcmp(name,"test") == 0){
+//    	  WARN(out);
+//      	  continue;
+//      }
+//    }
+
+
 
     if (bar_size != RHIZOME_BAR_BYTES)
       continue;
@@ -541,4 +575,3 @@ int overlay_mdp_service_rhizome_sync(struct internal_mdp_header *header, struct 
     rhizome_sync_send_requests(header->source, state);
   return 0;
 }
-
