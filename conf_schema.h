@@ -411,13 +411,13 @@ ATOM(bool_t,                enable,     1, boolean,, "If true, Rhizome advertise
 ATOM(uint32_t,              interval,   500, uint32_nonzero,, "Interval between Rhizome advertisements")
 END_STRUCT
 
-STRUCT(rhizome_filters)
-ATOM(int32_t,               filesize,     0, int32_nonneg,, "Maximum filesize to announce")
+STRUCT(rhizome_filter)
+ATOM(int32_t,               maxfilesize,     0, int32_nonneg,, "Maximum filesize to announce")
 ATOM(int32_t,               announcetime, 0, int32_nonneg,, "Time a file is announced after insert")
-STRING(255,                 filename,     "*", str_nonempty,, "Pattern to filter files by name") //Blacklist || Whitelist ?
-STRING(255,                 service,      "*", str_nonempty,, "Pattern to filter services by name")
-ATOM(bool_t,                onlyprivate,  0, boolean,, "If true, only private Rhizome bundles announced")
-ATOM(bool_t,                onlypublic,   0, boolean,, "If true, only public Rhizome bundles are announced")
+STRING(255,                 filename,     "", str_nonempty,, "Pattern to blacklist filter files by name")
+STRING(255,                 service,      "", str_nonempty,, "Pattern to blacklist filter services by name")
+ATOM(bool_t,                private,  0, boolean,, "If true, private Rhizome bundles are not announced")
+ATOM(bool_t,                public,   0, boolean,, "If true, public Rhizome bundles are not announced")
 END_STRUCT
 
 STRUCT(rhizome)
@@ -438,7 +438,7 @@ SUB_STRUCT(rhizome_api,     api,)
 SUB_STRUCT(rhizome_http,    http,)
 SUB_STRUCT(rhizome_mdp,     mdp,)
 SUB_STRUCT(rhizome_advertise, advertise,)
-SUB_STRUCT(rhizome_filters, filters,)
+SUB_STRUCT(rhizome_filter, filter,)
 END_STRUCT
 
 STRUCT(directory)
