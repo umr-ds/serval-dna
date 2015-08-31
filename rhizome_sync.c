@@ -1,16 +1,16 @@
 /*
 Copyright (C) 2010-2012 Serval Project Inc.
- 
+
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
 as published by the Free Software Foundation; either version 2
 of the License, or (at your option) any later version.
- 
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
- 
+
 You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
@@ -105,20 +105,20 @@ static void rhizome_sync_request(struct subscriber *subscriber, uint64_t token, 
 {
   struct internal_mdp_header header;
   bzero(&header, sizeof header);
-  
+
   header.source = my_subscriber;
   header.source_port = MDP_PORT_RHIZOME_SYNC;
   header.destination = subscriber;
   header.destination_port = MDP_PORT_RHIZOME_SYNC;
   header.qos = OQ_OPPORTUNISTIC;
-  
+
   struct overlay_buffer *b = ob_new();
   ob_append_byte(b, MSG_TYPE_REQ);
   ob_append_byte(b, forwards);
   ob_append_packed_ui64(b, token);
 
   DEBUGF(rhizome_sync, "Sending request to %s for BARs from %"PRIu64" %s", alloca_tohex_sid_t(subscriber->sid), token, forwards?"forwards":"backwards");
-    
+
   ob_flip(b);
   overlay_send_frame(&header, b);
   ob_free(b);
@@ -133,7 +133,7 @@ static void rhizome_sync_send_requests(struct subscriber *subscriber, struct rhi
   struct internal_mdp_header header;
   bzero(&header, sizeof header);
   struct overlay_buffer *payload = NULL;
-  
+
   for (i=state->bar_count -1;i>=0;i--){
     if (state->bars[i].next_request > now)
       continue;
@@ -147,7 +147,7 @@ static void rhizome_sync_send_requests(struct subscriber *subscriber, struct rhi
     unsigned char log2_size = rhizome_bar_log_size(&state->bars[i].bar);
     if (log2_size!=0xFF && rhizome_fetch_has_queue_space(log2_size)!=1)
       continue;
-    
+
     if (rhizome_fetch_bar_queued(&state->bars[i].bar)){
       state->bars[i].next_request = now+2000;
       continue;
@@ -165,11 +165,11 @@ static void rhizome_sync_send_requests(struct subscriber *subscriber, struct rhi
 
     if (ob_remaining(payload)<RHIZOME_BAR_BYTES)
       break;
-      
+
     DEBUGF(rhizome_sync, "Requesting manifest for BAR %s", alloca_tohex_rhizome_bar_t(&state->bars[i].bar));
-      
+
     ob_append_bytes(payload, state->bars[i].bar.binary, RHIZOME_BAR_BYTES);
-    
+
     state->bars[i].tries--;
     state->bars[i].next_request = now+5000;
     if (!state->bars[i].tries){
@@ -179,18 +179,18 @@ static void rhizome_sync_send_requests(struct subscriber *subscriber, struct rhi
       if (i<state->bar_count)
         state->bars[i] = state->bars[state->bar_count];
       state->bars_skipped++;
-      
+
       if (state->bar_count==0){
 	free(state->bars);
 	state->bars=NULL;
       }
     }
-    
+
     requests++;
     if (requests>=BARS_PER_RESPONSE)
       break;
   }
-  
+
   if (payload){
     ob_flip(payload);
     overlay_send_frame(&header, payload);
@@ -265,9 +265,9 @@ static int sync_cache_bar(struct rhizome_sync *state, const rhizome_bar_t *bar, 
       if (!state->bars)
 	return -1;
     }
-    
+
     DEBUGF(rhizome_sync, "Remembering BAR %s", alloca_tohex_rhizome_bar_t(bar));
-    
+
     state->bars[state->bar_count].bar = *bar;
     state->bars[state->bar_count].next_request = gettime_ms();
     state->bars[state->bar_count].tries = MAX_TRIES;
@@ -301,14 +301,14 @@ static void sync_process_bar_list(struct subscriber *subscriber, struct rhizome_
   int has_before=0, has_after=0;
   int mid_point = -1;
   time_ms_t now = gettime_ms();
-  
+
   if (now - state->start_time > (60*60*1000)){
     // restart rhizome sync every hour, no matter what state it is in
     bzero(state, sizeof(struct rhizome_sync));
     state->start_time = now;
   }
   state->last_response = now;
-  
+
   while(ob_remaining(b)>0 && bar_count < BARS_PER_RESPONSE){
     bar_tokens[bar_count]=ob_get_packed_ui64(b);
     bars[bar_count]=(const rhizome_bar_t *)ob_get_bytes_ptr(b, RHIZOME_BAR_BYTES);
@@ -401,16 +401,16 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
   IN();
   if (max_count == 0 || max_count > BARS_PER_RESPONSE)
     max_count = BARS_PER_RESPONSE;
-    
+
   struct internal_mdp_header header;
   bzero(&header, sizeof header);
-  
+
   header.source = my_subscriber;
   header.source_port = MDP_PORT_RHIZOME_SYNC;
   header.destination = dest;
   header.destination_port = MDP_PORT_RHIZOME_SYNC;
   header.qos = OQ_OPPORTUNISTIC;
-  
+
   if (!dest){
     header.crypt_flags = (MDP_FLAG_NO_CRYPT|MDP_FLAG_NO_SIGN);
     header.ttl = 1;
@@ -418,18 +418,21 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
 
   sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
   sqlite3_stmt *statement;
-  
+
   char* out = malloc(1024);
-  
+
   // Create SQL-String
   char *sqlstring = malloc(255);
-  sprintf(sqlstring, "SELECT rowid, bar, name, service FROM MANIFESTS WHERE");
-  
-  if (config.rhizome.filter.announcetime > 0){  
+  sprintf(sqlstring, "SELECT rowid, bar, name FROM MANIFESTS WHERE");
+
+  if (config.rhizome.filter.announcetime > 0){
      sprintf(sqlstring, "%s %s AND", sqlstring, "inserttime > ?");
   }
-  if (config.rhizome.filter.maxfilesize > 0){  
+  if (config.rhizome.filter.maxfilesize > 0){
      sprintf(sqlstring, "%s %s AND", sqlstring, "filesize < ?");
+  }
+  if (strcmp(config.rhizome.filter.service, "file") == 0 || strcmp(config.rhizome.filter.service, "MeshMS") == 0){
+      sprintf(sqlstring, "%s %s AND", sqlstring, "service = ?");
   }
   if (config.rhizome.filter.private) {
     sprintf(sqlstring, "%s %s AND", sqlstring, "recipient is null");
@@ -437,33 +440,36 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
   if (config.rhizome.filter.public) {
     sprintf(sqlstring, "%s %s AND", sqlstring, "recipient not null");
   }
-  
+
   if (forwards){
     sprintf(sqlstring, "%s rowid >= ? ORDER BY rowid ASC", sqlstring);
   } else {
     sprintf(sqlstring, "%s rowid <= ? ORDER BY rowid DESC", sqlstring);
   }
-  
+
   WARN(sqlstring);
-  
+
   statement = sqlite_prepare(&retry, sqlstring);
   if (!statement)
     return;
-  
+
   // Bind Parameters
   int bind_p = 1;
-  
-  if(config.rhizome.filter.announcetime > 0){  
+
+  if(config.rhizome.filter.announcetime > 0){
     time_ms_t min_inserttime = gettime_ms() - (config.rhizome.filter.announcetime * 1000);
     sqlite3_bind_int64(statement, bind_p++, min_inserttime);
   }
-  if (config.rhizome.filter.maxfilesize > 0){  
+  if (config.rhizome.filter.maxfilesize > 0){
     sqlite3_bind_int64(statement, bind_p++, config.rhizome.filter.maxfilesize);
+  }
+  if (strcmp(config.rhizome.filter.service, "file") == 0 || strcmp(config.rhizome.filter.service, "MeshMS") == 0){
+      sqlite3_bind_text(statement, bind_p++, config.rhizome.filter.service, -1, 0);
   }
 
   sqlite3_bind_int64(statement, bind_p++, token);
 
-  
+
   int count=0;
   uint64_t last=0;
 
@@ -472,15 +478,14 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
   ob_append_byte(b, MSG_TYPE_BARS);
   ob_checkpoint(b);
 
-  
+
   while(sqlite_step_retry(&retry, statement)==SQLITE_ROW){
     uint64_t rowid = sqlite3_column_int64(statement, 0);
     const unsigned char *bar = sqlite3_column_blob(statement, 1);
     size_t bar_size = sqlite3_column_bytes(statement, 1);
     const unsigned char *name = sqlite3_column_blob(statement, 2);
-    const unsigned char *service = sqlite3_column_blob(statement, 3);
 
-    sprintf(out, "Message %s (%s) is announced", name, service);
+    sprintf(out, "Message %s (%s) is announced", name);
     WARN(out);
 
 
@@ -521,7 +526,7 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
   }
 
   free(out);
-  
+
   if (token != HEAD_FLAG && token > max_token)
     max_token = token;
 
