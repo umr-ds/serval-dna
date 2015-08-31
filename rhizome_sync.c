@@ -26,7 +26,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "debug.h"
 #include "conf.h"
 
-#include <time.h>
+#include <regex.h>
 
 #define MSG_TYPE_BARS 0
 #define MSG_TYPE_REQ 1
@@ -447,7 +447,7 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
     sprintf(sqlstring, "%s rowid <= ? ORDER BY rowid DESC", sqlstring);
   }
 
-  WARN(sqlstring);
+  //WARN(sqlstring);
 
   statement = sqlite_prepare(&retry, sqlstring);
   if (!statement)
@@ -483,9 +483,30 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
     uint64_t rowid = sqlite3_column_int64(statement, 0);
     const unsigned char *bar = sqlite3_column_blob(statement, 1);
     size_t bar_size = sqlite3_column_bytes(statement, 1);
-    const unsigned char *name = sqlite3_column_blob(statement, 2);
+    const char *name = sqlite3_column_blob(statement, 2);
 
-    sprintf(out, "Message %s (%s) is announced", name);
+    if (strcmp(config.rhizome.filter.filename, "")) {
+        regex_t regex;
+        int regex_ret;
+
+        /* Compile regular expression */
+        if (regcomp(&regex, config.rhizome.filter.filename, 0)) {
+            sprintf(out, "Compilation of Regex %s failed. Not filtering by filename.", config.rhizome.filter.filename);
+            WARN(out);
+        } else {
+            /* Execute regular expression */
+            regex_ret = regexec(&regex, name, 0, NULL, 0);
+            if (!regex_ret) {
+                continue;
+            }
+        }
+        /* Free compiled regular expression if you want to use the regex_t again */
+        regfree(&regex);
+    }
+
+
+
+    sprintf(out, "Message %s is announced", name);
     WARN(out);
 
 
