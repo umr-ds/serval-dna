@@ -12,6 +12,7 @@ HDRS=	fifo.h \
 	httpd.h \
 	instance.h \
 	meshms.h \
+	rhizome_filter.h \
 	serval_types.h \
 	serval.h \
 	server.h \
