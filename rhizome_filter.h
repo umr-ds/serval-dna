@@ -8,7 +8,8 @@
 #ifndef RHIZOME_FILTER_H_
 #define RHIZOME_FILTER_H_
 
-int get_number_of_files();
-char ** get_files();
+char ** get_all_files();
+char ** get_extension_files(char *filter_extension);
+char * get_name(char *file_hash);
 
 #endif /* RHIZOME_FILTER_H_ */
