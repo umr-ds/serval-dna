@@ -46,7 +46,8 @@ Clients of the HTTP REST API must authenticate themselves using [Basic
 Authentication][].  This narrows the window for opportunistic attacks on the
 HTTP port by malicious applications that scan for open local ports to exploit.
 Any process wishing to use the REST API must supply valid authentication
-credentials (name/password), or will receive a *401 Unauthorized* response.
+credentials (name/password), or will receive a [401 Unauthorized](#401-unauthorized)
+response.
 
 Client applications obtain their REST API credentials via a back channel
 specific to their particular platform.  This delegates the exercise of handing
@@ -116,11 +117,40 @@ terminated by an ASCII CR-LF sequence.  For example:
      "http_status_message": "OK"
     }
 
-The lingua franca of the HTTP REST API is [JSON][] in [UTF-8][] encoding, so
-all Serval DNA HTTP REST responses have a Content-Type of **application/json**
+The lingua franca of the HTTP REST API is [JSON][] in [UTF-8][] encoding.  All
+Serval DNA HTTP REST responses have a Content-Type of **application/json**
 unless otherwise documented.
 
-If the request does not supply an "Authorization" header with a recognised
+Some responses contain non-standard HTTP headers as part of the result they
+return to the client; for example, [Rhizome response headers](#rhizome-response-headers).
+
+#### JSON result
+
+All responses that convey no special content return the following *JSON result*
+object:
+
+    {
+     "http_status_code": ...,
+     "http_status_message": "..."
+    }
+
+The `http_status_code` field is an integer equal to the [status code][] that
+follows the `HTTP/1.0` token in the first line of the response.
+
+The `http_status_message` field is usually the same as the *reason phrase* text
+that follows the code in the first line of the HTTP response.  This reason
+phrase may be a [standard phrase][status code], or it may be more explanatory;
+for example, *403 Forbidden* responses from Rhizome use the phrase, “Rhizome
+operation failed”.
+
+[status code]: http://www.w3.org/Protocols/HTTP/1.0/spec.html#Status-Codes
+
+Some responses augment the *JSON result* object with extra fields; for example,
+[Rhizome JSON result](#rhizome-json-result).
+
+#### 401 Unauthorized
+
+If a request does not supply an "Authorization" header with a recognised
 credential, the response will be *401 Unauthorized* with a "WWW-Authenticate"
 header:
 
@@ -136,9 +166,9 @@ header:
 
 ### JSON table
 
-HTTP REST responses that return a list of regular objects (eg, [GET
+Many HTTP REST responses that return a list of regular objects (eg, [GET
 /restful/rhizome/bundlelist.json](#get-restfulrhizomebundlelistjson)) use the
-following "JSON table" format:
+following *JSON table* format:
 
     {
         "header":["fieldname1","fieldname2","fieldname3", ... ],
@@ -233,7 +263,153 @@ Not Found*.
 Rhizome REST API
 ----------------
 
+A Rhizome *bundle* consists of a single *manifest* and an optional *payload*.
+
 TBC
+
+### Rhizome response headers
+
+All Rhizome requests that fetch or insert a single bundle, whatever the
+outcome, contain the following HTTP headers in the response:
+
+    Serval-Rhizome-Result-Bundle-Status-Code: -1|0|1|2|3|4|5|6|7
+    Serval-Rhizome-Result-Bundle-Status-Message: <text>
+    Serval-Rhizome-Result-Payload-Status-Code: -1|0|1|2|3|4|5|6|7|8
+    Serval-Rhizome-Result-Payload-Status-Message: <text>
+
+*  the `Serval-Rhizome-Result-Bundle-Status-Code` header is the integer [bundle
+   status code](#bundle-status-code)
+*  the `Serval-Rhizome-Result-Bundle-Status-Message` header is the string
+   [bundle status message](#bundle-status-message)
+*  the `Serval-Rhizome-Result-Payload-Status-Code` header is the integer
+   [payload status code](#payload-status-code)
+*  the `Serval-Rhizome-Result-Payload-Status-Message` header is the string
+   [payload status message](#payload-status-message)
+
+### Rhizome response bundle headers
+
+All Rhizome requests that *successfully* fetch or insert a single bundle
+contain the following HTTP headers in the response, which convey the core
+manifest fields:
+
+    Serval-Rhizome-Bundle-Id: <hex64bid>
+    Serval-Rhizome-Bundle-Version: <integer>
+    Serval-Rhizome-Bundle-Filesize: <integer>
+
+If *filesize* is not zero, then the following HTTP header is present:
+
+    Serval-Rhizome-Bundle-Filehash: <hex128>
+
+If the bundle is a *journal*, then the following HTTP header is present:
+
+    Serval-Rhizome-Bundle-Tail: <integer>
+
+In addition, none, some or all of the following HTTP headers may be present, to
+convey optional fields that are present in the bundle's manifest:
+
+    Serval-Rhizome-Bundle-Sender: <hex64sid>
+    Serval-Rhizome-Bundle-Recipient: <hex64sid>
+    Serval-Rhizome-Bundle-BK: <hex64>
+    Serval-Rhizome-Bundle-Crypt: 0 or 1
+    Serval-Rhizome-Bundle-Service: <token>
+    Serval-Rhizome-Bundle-Name: <quotedstring>
+    Serval-Rhizome-Bundle-Date: <integer>
+
+If the bundle's author, as verified by its signature, is present in the keyring,
+then the following HTTP header is present:
+
+    Serval-Rhizome-Bundle-Author: <hex64sid>
+
+If the bundle's secret is known, either because it was supplied in the request
+or was deduced from the manifest's Bundle Key (BK) field and the author's
+Rhizome Secret (RS), then the following HTTP header is present:
+
+    Serval-Rhizome-Bundle-Secret: <hex64>
+
+The following HTTP headers might be present at the sole discretion of the
+server, but they are not guaranteed, and future upgrades of [Serval DNA][] may
+remove them.  They reveal internal details of the storage of the bundle:
+
+    Serval-Rhizome-Bundle-Rowid: <integer>
+    Serval-Rhizome-Bundle-Inserttime: <integer>
+
+### Rhizome JSON result
+
+All Rhizome requests to fetch or insert a single bundle that do not produce a
+special response content for the outcome, return the following augmented [JSON
+result](#json-result) object as the HTTP response content:
+
+    {
+     "http_status_code": ...,
+     "http_status_message": "...",
+     "rhizome_bundle_status_code": ...,
+     "rhizome_bundle_status_message": "...",
+     "rhizome_payload_status_code": ...,
+     "rhizome_payload_status_message": "..."
+    }
+
+*  the `rhizome_bundle_status_code` field is the integer [bundle status code](#bundle-status-code)
+*  the `rhizome_bundle_status_message` field is the string [bundle status message](#bundle-status-message)
+*  the `rhizome_payload_status_code` field is the integer [payload status code](#payload-status-code)
+*  the `rhizome_payload_status_message` field is the string [payload status message](#payload-status-message)
+
+#### Bundle status code
+
+All Rhizome operations that involve fetching and/or inserting a single manifest
+into the Rhizome store return a *bundle status code*, which describes the
+outcome of the operation.  Some codes have different meanings in the context of
+a fetch or an insertion, and some codes can only be produced by insertions.
+
+| code | meaning                                                                         |
+|:----:|:------------------------------------------------------------------------------- |
+|  -1  | internal error                                                                  |
+|   0  | "new"; (fetch) bundle not found; (insert) bundle added to store                 |
+|   1  | "same"; (fetch) bundle found; (insert) bundle already in store                  |
+|   2  | "duplicate"; (insert only) duplicate bundle already in store                    |
+|   3  | "old"; (insert only) newer version of bundle already in store                   |
+|   4  | "invalid"; (insert only) manifest is invalid                                    |
+|   5  | "fake"; (insert only) manifest signature is invalid                             |
+|   6  | "inconsistent"; (insert only) manifest filesize/filehash does not match payload |
+|   7  | "no room"; (insert only) doesn't fit; store may contain more important bundles  |
+|   8  | "readonly"; (insert only) cannot modify manifest because secret is unknown      |
+|   9  | "busy"; Rhizome store database is currently busy (re-try)                       |
+
+#### Bundle status message
+
+The *bundle status message* is a short English text that explains the meaning
+of its accompanying *bundle status code*, to assist with diagnosis.  The
+message for a code may differ across requests and may change when [Serval
+DNA][] is upgraded, so it cannot be relied upon as a means to programmatically
+detect the outcome of an operation.
+
+#### Payload status code
+
+All Rhizome operations that involve fetching and/or inserting a single payload
+into the Rhizome store return a *payload status code*, which describes the
+outcome of the payload operation, and elaborates on the the reason for the
+accompanying *bundle status code*.  Some codes have different meanings in the
+context of a fetch or an insertion, and some codes can only be produced by
+insertions.
+
+| code | meaning                                                               |
+|:----:|:--------------------------------------------------------------------- |
+|  -1  | internal error                                                        |
+|   0  | empty payload (zero length)                                           |
+|   1  | (fetch) payload not found; (insert) payload added to store            |
+|   2  | (fetch) payload found; (insert) payload already in store              |
+|   3  | payload size does not match manifest *filesize* field                 |
+|   4  | payload hash does not match manifest *filehash* field                 |
+|   5  | payload key unknown: (fetch) cannot decrypt; (insert) cannot encrypt  |
+|   6  | (insert only) payload is too big to fit in store                      |
+|   7  | (insert only) payload evicted; other payloads are ranked higher       |
+
+#### Payload status message
+
+The *payload status message* is short English text that explains the meaning of
+its accompanying *payload status code*, to assist diagnosis.  The message for a
+code may differ across requests and may change when [Serval DNA][] is upgraded,
+so it cannot be relied upon as a means to programmatically detect the outcome
+of an operation.
 
 ### GET /restful/rhizome/bundlelist.json
 
@@ -245,15 +421,113 @@ TBC
 
 ### GET /restful/rhizome/BID.rhm
 
-TBC
+Fetches the manifest for the bundle whose id is `BID` (64 hex digits), eg:
+
+    /restful/rhizome/1702BD647D614DB72C36BD634B6870CA31040C2EEC5069AEC0C0841D0CC671BE.rhm
+
+If the **manifest is found** in the local Rhizome store, then the response will
+be *200 OK* and:
+*  the [bundle status code](#bundle-status-code) will be 1
+*  the [payload status code](#payload-status-code), if present in the response,
+   is not relevant, so must be ignored
+*  the [Rhizome response bundle headers](#rhizome-response-bundle-headers) give
+   information about the found bundle, some of which is duplicated from the
+   manifest
+*  the response's Content-Type is **rhizome/manifest; format=text+binarysig**
+*  the response's Content-Length is the size, in bytes, of the manifest with
+   its binary signature appended
+*  the response's content is the Rhizome manifest in text format followed by a
+   nul (0) byte followed by the manifest's binary signature
+
+If the **manifest is not found** in the local Rhizome store, then the response
+will be *403 Forbidden* and:
+*  the [bundle status code](#bundle-status-code) will be 0
+*  the [payload status code](#payload-status-code), if present in the response,
+   is not relevant, so must be ignored
+*  the [Rhizome response bundle headers](#rhizome-response-bundle-headers) are
+   absent from the response
+*  the response's content is the [Rhizome JSON result](#rhizome-json-result)
+   object
 
 ### GET /restful/rhizome/BID/raw.bin
 
-TBC
+Fetches the "raw" (encrypted) payload for the bundle whose id is `BID` (64 hex
+digits), eg:
+
+    /restful/rhizome/1702BD647D614DB72C36BD634B6870CA31040C2EEC5069AEC0C0841D0CC671BE/raw.bin
+
+If the **manifest and the payload are both found** in the local Rhizome store,
+then the response will be *200 OK* and:
+*  the [bundle status code](#bundle-status-code) will be 1
+*  the [payload status code](#payload-status-code) will be 0 if the payload has
+   zero length, otherwise 2
+*  the [Rhizome response bundle headers](#rhizome-response-bundle-headers) give
+   information about the found bundle, some of which is duplicated from the
+   manifest
+*  the response's Content-Type is **application/octet-stream**
+*  the response's Content-Length is the size, in bytes, of the raw payload
+*  the response's content is the bundle's payload exactly as stored in Rhizome;
+   if the payload is encrypted (the manifest's `crypt` field is 1) then the
+   payload is not decrypted
+
+If the **manifest is found** in the local Rhizome store but the **payload is
+not found**, then the response will be *403 Forbidden* and:
+*  the [bundle status code](#bundle-status-code) will be 1
+*  the [payload status code](#payload-status-code) will be 1
+*  the [Rhizome response bundle headers](#rhizome-response-bundle-headers) give
+   information about the found manifest
+*  the response's content is the [Rhizome JSON result](#rhizome-json-result)
+   object
+
+If the **manifest is not found** in the local Rhizome store, then the response
+will be *403 Forbidden* and:
+*  the [bundle status code](#bundle-status-code) will be 0
+*  the [payload status code](#payload-status-code), if present in the response,
+   is not relevant, so must be ignored
+*  the [Rhizome response bundle headers](#rhizome-response-bundle-headers) are
+   absent from the response
+*  the response's content is the [Rhizome JSON result](#rhizome-json-result)
+   object
 
 ### GET /restful/rhizome/BID/decrypted.bin
 
-TBC
+Fetches the decrypted payload for the bundle whose id is `BID` (64 hex digits),
+eg:
+
+    /restful/rhizome/1702BD647D614DB72C36BD634B6870CA31040C2EEC5069AEC0C0841D0CC671BE/decrypted.bin
+
+The responses are identical to those for [GET /restful/rhizome/BID/raw.bin](get-restful-rhizome-bid-raw-bin),
+with the following additional case:
+
+If the **manifest and payload are both found** and the payload is **encrypted**
+(the manifest's `crypt` field is 1), but the **payload secret is not known**,
+then:
+*  the [bundle status code](#bundle-status-code) will be 0
+*  the [payload status code](#payload-status-code) will be 5
+*  the [Rhizome response bundle headers](#rhizome-response-bundle-headers) give
+   information about the found manifest
+*  the response's content is the [Rhizome JSON result](#rhizome-json-result)
+   object
+
+For a bundle that has a *sender* and a *recipient*, the payload secret is
+determined as follows:
+*  if the recipient's identity is found (unlocked) in the keyring, then the
+   secret is derived from the recipient's private key; otherwise
+*  if the recipient's identity is not found in the keyring (locked or missing)
+   but the sender's identity is found (unlocked) in the keyring, then the
+   secret is derived from the sender's private key; otherwise
+*  neither identity is found in the keyring (both are locked or missing), so
+   the payload secret is unknown.
+
+For all other bundles, the payload secret is derived from the Bundle Secret.
+*  if the correct Bundle Secret was supplied in the request then the payload
+   secret is derived from it directly; otherwise
+*  if the manifest contains a `BK` field, and the bundle's author can be
+   deduced from the manifest's signature and the author's identity is found
+   (unlocked) in the keyring, then the Bundle Secret is derived from the BK
+   field and the author's Rhizome Secret, then the payload secret is derived
+   from that; otherwise
+*  the Bundle Secret is unknown, so the payload secret is unknown.
 
 ### POST /restful/rhizome/insert
 
