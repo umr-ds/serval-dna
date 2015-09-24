@@ -1118,7 +1118,7 @@ static int http_request_start_body(struct http_request *r)
   else if (r->verb == HTTP_VERB_POST) {
     if (r->request_header.content_length == CONTENT_LENGTH_UNKNOWN) {
       IDEBUGF(r->debug, "Malformed HTTP %s request: missing Content-Length header", r->verb);
-      return 411;
+      return 411; // Length Required
     }
     if (r->request_header.content_length == 0) {
       r->parser = http_request_reject_content;
@@ -1141,7 +1141,7 @@ static int http_request_start_body(struct http_request *r)
       } else {
 	IDEBUGF(r->debug, "Unsupported HTTP %s request: Content-Type %s not supported",
 	      r->verb, alloca_mime_content_type(&r->request_header.content_type));
-	return 415;
+	return 415; // Unsupported Media Type
       }
     }
   }
@@ -1916,6 +1916,9 @@ static const char *httpResultString(int response_code)
   case 414: return "Request-URI Too Long";
   case 415: return "Unsupported Media Type";
   case 416: return "Requested Range Not Satisfiable";
+  case 422: return "Unprocessable Entity";
+  case 423: return "Locked";
+  case 429: return "Too Many Requests";
   case 431: return "Request Header Fields Too Large";
   case 500: return "Internal Server Error";
   case 501: return "Not Implemented";
@@ -1936,7 +1939,7 @@ static strbuf strbuf_status_body(strbuf sb, struct http_response *hr, const char
 	strbuf_puts(sb, "\r\n");
 	strbuf_puts(sb, hr->result_extra[i].label);
 	strbuf_puts(sb, "=");
-	strbuf_json_atom_as_text(sb, &hr->result_extra[i].value);
+	strbuf_json_atom_as_text(sb, &hr->result_extra[i].value, "\r\n");
       }
     strbuf_puts(sb, "\r\n");
   }
@@ -1959,16 +1962,17 @@ static strbuf strbuf_status_body(strbuf sb, struct http_response *hr, const char
   else {
     hr->header.content_type = CONTENT_TYPE_HTML;
     strbuf_sprintf(sb, "<html>\n<h1>%03u %s</h1>", hr->result_code, message);
+    strbuf_puts(sb, "\n<dl>");
     unsigned i;
     for (i = 0; i < NELS(hr->result_extra); ++i)
       if (hr->result_extra[i].label) {
-	strbuf_puts(sb, "\n<dl><dt>");
+	strbuf_puts(sb, "\n<dt>");
 	strbuf_html_escape(sb, hr->result_extra[i].label, strlen(hr->result_extra[i].label));
 	strbuf_puts(sb, "</dt><dd>");
 	strbuf_json_atom_as_html(sb, &hr->result_extra[i].value);
-	strbuf_puts(sb, "</dd></dl>");
+	strbuf_puts(sb, "</dd>");
       }
-    strbuf_puts(sb, "\n</html>");
+    strbuf_puts(sb, "\n</dl>\n</html>");
   }
   return sb;
 }

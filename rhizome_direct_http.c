@@ -35,23 +35,23 @@ DECLARE_HANDLER("/rhizome/import", rhizome_direct_import);
 DECLARE_HANDLER("/rhizome/enquiry", rhizome_direct_enquiry);
 DECLARE_HANDLER("/rhizome/", rhizome_direct_dispatch);
 
+static char PART_MANIFEST[] = "manifest";
+static char PART_PAYLOAD[] = "payload";
+// TODO: "data" is deprecated in favour of "payload" to match the restful API
+static char PART_DATA[] = "data";
+
 static int _form_temporary_file_path(struct __sourceloc __whence, httpd_request *r, char *pathbuf, size_t bufsiz, const char *field)
 {
-  strbuf b = strbuf_local(pathbuf, bufsiz);
   // TODO: use a temporary directory
-  strbuf_sprintf(b, "rhizomedirect.%d.%s", r->http.alarm.poll.fd, field);
-  if (strbuf_overrun(b)) {
-    WHYF("Rhizome Direct pathname overflow: %s", alloca_str_toprint(pathbuf));
-    return -1;
-  }
-  return 0;
+  return formf_serval_tmp_path(pathbuf, bufsiz,
+			       "rhizomedirect.%d.%s", r->http.alarm.poll.fd, field);
 }
 
 #define form_temporary_file_path(r,buf,field) _form_temporary_file_path(__WHENCE__, (r), (buf), sizeof(buf), (field))
 
 static void rhizome_direct_clear_temporary_files(httpd_request *r)
 {
-  const char *fields[] = { "manifest", "data" };
+  const char *fields[] = { PART_MANIFEST, PART_PAYLOAD };
   int i;
   for (i = 0; i != NELS(fields); ++i) {
     char path[1024];
@@ -75,8 +75,8 @@ static int rhizome_direct_import_end(struct http_request *hr)
   /* Got a bundle to import */
   char manifest_path[512];
   char payload_path[512];
-  if (   form_temporary_file_path(r, manifest_path, "manifest") == -1
-      || form_temporary_file_path(r, payload_path, "data") == -1
+  if (   form_temporary_file_path(r, manifest_path, PART_MANIFEST) == -1
+      || form_temporary_file_path(r, payload_path, PART_PAYLOAD) == -1
   ) {
     http_request_simple_response(&r->http, 500, "Internal Error: Buffer overrun");
     return 0;
@@ -107,22 +107,22 @@ static int rhizome_direct_import_end(struct http_request *hr)
     http_request_simple_response(&r->http, 201, "Bundle succesfully imported");
     return 0;
   case RHIZOME_BUNDLE_STATUS_SAME:
-    http_request_simple_response(&r->http, 200, "Bundle already imported");
+    http_request_simple_response(&r->http, 200, "Bundle already imported"); // OK
     return 0;
   case RHIZOME_BUNDLE_STATUS_OLD:
-    http_request_simple_response(&r->http, 403, "Newer bundle already stored");
+    http_request_simple_response(&r->http, 202, "Newer bundle already stored"); // Accepted
     return 0;
   case RHIZOME_BUNDLE_STATUS_INVALID:
-    http_request_simple_response(&r->http, 403, "Manifest is invalid");
+    http_request_simple_response(&r->http, 422, "Manifest is invalid"); // Unprocessable Entity
     return 0;
   case RHIZOME_BUNDLE_STATUS_INCONSISTENT:
-    http_request_simple_response(&r->http, 403, "Manifest is inconsistent with file");
+    http_request_simple_response(&r->http, 422, "Manifest is inconsistent with file"); // Unprocessable Entity
     return 0;
   case RHIZOME_BUNDLE_STATUS_FAKE:
-    http_request_simple_response(&r->http, 403, "Manifest not signed");
+    http_request_simple_response(&r->http, 403, "Manifest not signed"); // Forbidden
     return 0;
   case RHIZOME_BUNDLE_STATUS_NO_ROOM:
-    http_request_simple_response(&r->http, 403, "Not enough space");
+    http_request_simple_response(&r->http, 202, "Not enough space"); // Accepted
     return 0;
   case RHIZOME_BUNDLE_STATUS_READONLY:
   case RHIZOME_BUNDLE_STATUS_DUPLICATE:
@@ -142,7 +142,7 @@ int rhizome_direct_enquiry_end(struct http_request *hr)
     return 0;
   }
   char data_path[512];
-  if (form_temporary_file_path(r, data_path, "data") == -1) {
+  if (form_temporary_file_path(r, data_path, PART_PAYLOAD) == -1) {
     http_request_simple_response(&r->http, 500, "Internal Error: Buffer overrun");
     return 0;
   }
@@ -201,7 +201,7 @@ static int rhizome_direct_addfile_end(struct http_request *hr)
   // arbitrary bundles, which would be bad.
   if (!r->u.direct_import.received_manifest) {
     char payload_path[512];
-    if (form_temporary_file_path(r, payload_path, "data") == -1) {
+    if (form_temporary_file_path(r, payload_path, PART_PAYLOAD) == -1) {
       http_request_simple_response(&r->http, 500, "Internal Error: Buffer overrun");
       return 0;
     }
@@ -291,9 +291,6 @@ static int rhizome_direct_addfile_end(struct http_request *hr)
   }
 }
 
-static char PART_MANIFEST[] = "manifest";
-static char PART_DATA[] = "data";
-
 static int rhizome_direct_process_mime_start(struct http_request *hr)
 {
   httpd_request *r = (httpd_request *) hr;
@@ -315,7 +312,8 @@ static int rhizome_direct_process_mime_end(struct http_request *hr)
   }
   if (r->u.direct_import.current_part == PART_MANIFEST)
     r->u.direct_import.received_manifest = 1;
-  else if (r->u.direct_import.current_part == PART_DATA)
+  else if (   r->u.direct_import.current_part == PART_DATA
+	   || r->u.direct_import.current_part == PART_PAYLOAD)
     r->u.direct_import.received_data = 1;
   r->u.direct_import.current_part = NULL;
   return 0;
@@ -324,8 +322,10 @@ static int rhizome_direct_process_mime_end(struct http_request *hr)
 static int rhizome_direct_process_mime_part_header(struct http_request *hr, const struct mime_part_headers *h)
 {
   httpd_request *r = (httpd_request *) hr;
-  if (strcmp(h->content_disposition.name, PART_DATA) == 0) {
-    r->u.direct_import.current_part = PART_DATA;
+  if (   strcmp(h->content_disposition.name, PART_PAYLOAD) == 0
+      || strcmp(h->content_disposition.name, PART_DATA) == 0
+  ) {
+    r->u.direct_import.current_part = PART_PAYLOAD;
     strncpy(r->u.direct_import.data_file_name,
 	    h->content_disposition.filename,
 	    sizeof r->u.direct_import.data_file_name)
@@ -336,7 +336,7 @@ static int rhizome_direct_process_mime_part_header(struct http_request *hr, cons
   } else
     return 0;
   char path[512];
-  if (form_temporary_file_path(r, path, h->content_disposition.name) == -1) {
+  if (form_temporary_file_path(r, path, r->u.direct_import.current_part) == -1) {
     http_request_simple_response(&r->http, 500, "Internal Error: Buffer overrun");
     return 0;
   }
