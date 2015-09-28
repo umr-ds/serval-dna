@@ -67,40 +67,74 @@ PASSWORD is a cleartext secret, so the Serval DNA configuration file must be
 protected from unauthorised access or modification by other apps.  That makes
 this mechanism unsuitable for general use.
 
-### Requests
+### Request
 
-An HTTP REST request is a normal [HTTP 1.0][] GET or POST request.
+An HTTP REST request is a normal [HTTP 1.0][] [GET](#get) or [POST](#post):
 
-*   A **GET** request consists of an initial "GET" line, followed by zero or
-    more header lines, followed by a blank line.  As usual for HTTP, all lines
-    are terminated by an ASCII CR-LF sequence.
+#### GET
 
-    For example:
+A **GET** request consists of an initial "GET" line, followed by zero or more
+header lines, followed by a blank line.  As usual for HTTP, all lines are
+terminated by an ASCII CR-LF sequence.
 
-        GET /restful/keyring/identities.json?pin=1234 HTTP/1.0
-        Authorization: Basic aGFycnk6cG90dGVy
-        Accept: */*
-        
+For example:
 
-*   A **POST** request is the same as a GET request except that the first word
-    of the first line is "POST", the blank line is followed by a request body,
-    and the following request headers are mandatory:
+    GET /restful/keyring/identities.json?pin=1234 HTTP/1.0
+    Authorization: Basic aGFycnk6cG90dGVy
+    Accept: */*
+    
 
-    *   **Content-Length** gives the exact number of bytes (octets) in the
-        body, and must be correct.  Serval DNA will not process the request
-        until it receives Content-Length bytes, so if Content-Length is too
-        large, the request will suspend and eventually time out.  Serval DNA
-        will ignore any bytes received after it has read Content-Length bytes,
-        so if Content-Length is too small, the request body will be malformed.
+#### POST
 
-    *   **Content-Type** gives the [Internet Media Type][] of the body.  Serval
-        DNA currently supports the following media types in requests:
-        *   **multipart/form-data; boundary=** is used to send large parameters
-            in POST requests
-        *   **text/plain; charset=utf-8** is used for [MeshMS][] message form
-            parts
-        *   **rhizome/manifest; format=text+binarysig** is used for [Rhizome][]
-            manifest form parts
+A **POST** request is the same as a GET request except that the first word
+of the first line is "POST", the blank line is followed by a request body,
+and the following request headers are mandatory:
+*   [Content-Length](#request-content-length)
+*   [Content-Type](#request-content-type)
+
+#### Request Content-Length
+
+In a request, the **Content-Length** header gives the exact number of bytes
+(octets) in the request's body, which must be correct.  Serval DNA will not
+process a request until it receives Content-Length bytes, so if Content-Length
+is too large, the request will suspend and eventually time out.  Serval DNA
+will ignore any bytes received after it has read Content-Length bytes, so if
+Content-Length is too small, the request body will be malformed.
+
+#### Request Content-Type
+
+In a request, the **Content-Type** header gives the [Internet Media Type][] of
+the body.  Serval DNA currently supports the following media types in requests:
+
+*   **multipart/form-data; boundary=** is used to send large parameters
+    in POST requests
+
+*   **text/plain; charset=utf-8** is used for [MeshMS][] message form
+    parts
+
+*   **rhizome/manifest; format=text+binarysig** is used for [Rhizome][]
+    manifest form parts
+
+#### Request Range
+
+[HTTP 1.1 Range][] retrieval is partially supported.  In a request, the
+**Range** header gives the start and end, in byte offsets, of the resource to
+be returned.  The server may respond with exactly the range requested, in which
+case the response status code will be [206](#partial-content), or it may ignore
+the Range header and respond with the entire requested resource.
+
+For example, the following header asks that the server omit the first 64 bytes
+and send only the next 64 bytes (note that ranges are inclusive of their end
+byte number):
+
+    Range: bytes=64-127
+
+The [specification][HTTP 1.1 Range] allows for more than one start-end range to
+be supplied, separated by commas, however not all REST API operations support
+multi ranges.  If a multi-range header is used in such a request, then the
+response may be the entire content or [501 Not Implemented](#not-implemented).
+
+[HTTP 1.1 Range]: http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.35
 
 ### Responses
 
@@ -124,35 +158,60 @@ unless otherwise documented.
 Some responses contain non-standard HTTP headers as part of the result they
 return to the client; for example, [Rhizome response headers](#rhizome-response-headers).
 
-#### JSON result
+### Response status codes
 
-All responses that convey no special content return the following *JSON result*
-object:
+The HTTP REST API response uses the [HTTP status code][] to indicate the
+outcome of the request as follows:
 
-    {
-     "http_status_code": ...,
-     "http_status_message": "..."
-    }
+[HTTP status code]: http://www.w3.org/Protocols/HTTP/1.0/spec.html#Status-Codes
 
-The `http_status_code` field is an integer equal to the [status code][] that
-follows the `HTTP/1.0` token in the first line of the response.
+#### 200 OK
 
-The `http_status_message` field is usually the same as the *reason phrase* text
-that follows the code in the first line of the HTTP response.  This reason
-phrase may be a [standard phrase][status code], or it may be more explanatory;
-for example, *403 Forbidden* responses from Rhizome use the phrase, “Rhizome
-operation failed”.
+The operation was successful and no new entity was created.  Most requests
+return this code to indicate success.  Requests that create a new entity only
+return this code if the entity already existed, meaning that the creation was
+not performed but the request can be considered a success since the desired
+outcome was achieved: namely, the existence of the entity.  (If the entity was
+created, then these requests return [201 Created](#created) instead.)
 
-[status code]: http://www.w3.org/Protocols/HTTP/1.0/spec.html#Status-Codes
+(Serval APIs are all [idempotent][] with respect to creation: creating the same
+entity twice yields the same state as creating it once.  This is an important
+property for a purely distributed network that has no central arbiter to
+enforce sequencing of operations.)
 
-Some responses augment the *JSON result* object with extra fields; for example,
-[Rhizome JSON result](#rhizome-json-result).
+#### 201 Created
+
+The operation was successful and the entity was created.  This code is only
+returned by requests that create new entities, in the case that the entity did
+not exist beforehand and has been created successfully.
+
+#### 202 Accepted
+
+The operation was successful but the entity was not created.  This code is only
+returned by requests that create new entities, in the case that the request was
+valid but the entity was not created because other existing entities take
+precedence.  For example, the [Rhizome REST API](#rhizome-rest-api) returns
+this code when inserting a bundle to a full Rhizome store if the new bundle's
+rank falls below all other bundles, so the new bundle itself would be evicted
+to make room.
+
+#### 206 Partial Content
+
+The operation was successful and the response contains part of the requested
+content.  This code is only returned by requests that fetch an entity (the
+fetched entity forms the body of the response) if the request supplied a
+[Range](#request-range) header that specified less than the entire entity.
+
+#### 400 Bad Request
+
+The HTTP request was malformed (incorrect syntax), and should not be repeated
+without modifications.
 
 #### 401 Unauthorized
 
-If a request does not supply an "Authorization" header with a recognised
-credential, the response will be *401 Unauthorized* with a "WWW-Authenticate"
-header:
+The request did not supply an "Authorization" header with a recognised
+credential.  This response contains a "WWW-Authenticate" header that describes
+the missing credential:
 
     HTTP/1.0 401 Unauthorized
     Content-Type: application/json
@@ -163,6 +222,132 @@ header:
      "http_status_code": 401
      "http_status_message": "Unauthorized"
     }
+
+#### 403 Forbidden
+
+The request failed because the caller does not possess the necessary
+cryptographic secret.
+
+#### 404 Not Found
+
+The request failed because the [HTTP request URI][] does not exist.  This could
+be for several reasons:
+- the request specified an incorrect path (typographic mistake)
+- the path is unavailable because the API in question is unavailable (eg, the
+  [Rhizome REST API](#rhizome-rest-api)) is currently [configured][] as
+  disabled
+- the path contains a reference to an entity (eg, [SID][], [BID][]) that does
+  not exist
+
+[HTTP request URI]: http://www.w3.org/Protocols/HTTP/1.0/spec.html#Request-URI
+
+#### 405 Method Not Allowed
+
+The request failed because the [HTTP request method][] is not supported for the
+given path.  Usually this means that a [GET](#get) request was attempted on a
+path that only supports [POST](#post), or vice versa.
+
+[HTTP request method]: http://www.w3.org/Protocols/HTTP/1.0/spec.html#Method
+
+#### 411 Length Required
+
+A `POST` request did not supply a [Content-Length](#request-content-length)
+header.
+
+#### 415 Unsupported Media Type
+
+The `POST` request [Content-Type](#request-content-type) header specified
+an unsupported media type.
+
+#### 416 Requested Range Not Satisfiable
+
+The [Range](#request-range) header specified a range whose start position falls
+outside the size of the requested entity.
+
+#### 422 Unprocessable Entity
+
+A `POST` request supplied data that was inconsistent or violates semantic
+constraints, so cannot be processed.  For example, the [Rhizome
+insert](#post-restful-rhizome-insert) operation responds with 422 if the
+manifest *filesize* and *filehash* fields do not match the supplied payload.
+
+#### 423 Locked
+
+The request cannot be performed because a necessary resource is busy for
+reasons outside the control of the requester and server.
+
+This code is returned by Rhizome requests if the Rhizome store database is
+currently locked by another process.  The architecture of [Serval DNA][] is
+being improved to prevent any process other than the Serval DNA daemon itself
+from directly accessing the Rhizome database.  Once these improvements are
+done, this code should no longer occur except during unusual testing and
+development situations.
+
+#### 429 Too Many Requests
+
+The request cannot be performed because a necessary resource is temporarily
+unavailable due to a high volume of concurrent requests.
+
+This code was originally used by Rhizome operations if the server's manifest
+table ran out of free manifests, which would only happen if there were many
+concurrent Rhizome requests holding manifest structures open in server memory.
+It may be used for any resource that is occupied by running requests.
+
+If [Serval DNA][] is ever limited to service only a few HTTP requests at a
+time, then this code will be returned to new requests that would exceed the
+limit.
+
+#### 431 Request Header Fields Too Large
+
+The request header block was too long.
+
+Initial implementations of [Serval DNA][] allocated approximately 8 KiB of
+buffer memory for each [request](#request), and the HTTP server read each
+header line entirely into that buffer before parsing it.  If a single header
+exceeded the size of this buffer, then the 431 response was returned.
+
+#### 500 Internal Server Error
+
+The request failed because of an internal error in [Serval DNA][], not an error
+in the request itself.  This could be for several reasons:
+- software defect (bug)
+- unavailable system resource (eg, memory, disk space)
+- corrupted environment (eg, bad configuration, database inconsistency)
+
+Internal errors of this kind may persist or may resolve if the request is
+re-tried, but in general they will persist because the cause is not transient.
+Temporary failures that can be resolved by re-trying the request are generally
+indicated by other status codes, such as [423](#locked).
+
+#### 501 Not Implemented
+
+The requested operation is valid but not yet implemented.  This is used for the
+following cases:
+
+- a request [Range](#request-range) header specifies a multi range
+
+#### JSON result
+
+All responses that convey no special content return the following *JSON result*
+object:
+
+    {
+     "http_status_code": ...,
+     "http_status_message": "..."
+    }
+
+The `http_status_code` field is an integer equal to the [status
+code](#response-status-code) that follows the `HTTP/1.0` token in the first
+line of the response.
+
+The `http_status_message` field is usually the same as the *reason phrase* text
+that follows the code in the first line of the HTTP response.  This reason
+phrase may be a [standard phrase][status code], or it may be more explanatory;
+for example, *403 Forbidden* responses from Rhizome use the phrase, “Rhizome
+operation failed”.
+
+Some responses augment the *JSON result* object with extra fields; for example,
+[Rhizome JSON result](#rhizome-json-result).
 
 ### JSON table
 
@@ -413,7 +598,67 @@ of an operation.
 
 ### GET /restful/rhizome/bundlelist.json
 
-TBC
+Fetches a list of all bundles currently in [Serval DNA][]'s Rhizome store, in
+order of descending insertion time starting with the most recently inserted.
+The list is returned in the body of the [response](#response) in [JSON
+table](#json-table) format with the following columns:
+
+*  `.token` - either *null* or a string value that can be used as the token in
+   a [newsince](#get-restful-rhizome-newsince-token-bundlelist-json) request.
+
+*  `_id` - the Rhizome database row identifier; a unique integer per bundle
+   with no guarantees of sequence or re-use after deletion.
+
+*  `service` - the string value of the manifest's *service* field, or *null* if
+   the manifest has no *service* field.
+
+*  `id` - the [Bundle ID][BID]; a string containing 64 hexadecimal digits.
+
+*  `version` - the bundle version; a positive integer with a maximum value of
+   2^64 − 1.
+
+*  `date` - the bundle publication time; an integral [Unix time][] or *null* if
+   the manifest has no *date* field.  This field is set by the bundle's creator
+   and could have any value, due either to inaccuracies in the system clock
+   used to make the time stamp, or deliberate falsification.  This field can
+   have values up to 2^64 − 1, so it is immune to the [Y2038 problem][].
+
+*  `.inserttime` - the time that the bundle was inserted into the local Rhizome
+   store.  This field is created using the local system clock, so comparisons
+   with the `date` field cannot be relied upon as having any meaning.
+
+*  `.author` - the [SID][] of the local (unlocked) identity that (allegedly)
+   created the bundle; either a string containing 64 hexadecimal digits, or
+   *null* if the author cannot be deduced (the manifest lacks a *BK* field) or
+   is not an [unlocked identity](#get-restful-keyring-identities-json).   For
+   performance reasons bundle authorship is not verified when listing bundles,
+   because that would impose unreasonable CPU and battery load (regenerating
+   the cryptographic signature of every single manifest in the list), so the
+   [bundle fetch request](#get-restful-rhizome-bid.rhm) and similar
+   single-bundle requests which do perform a signature authorship check may
+   return a different `Serval-Rhizome-Bundle-Author` header; in particular if
+   the manifest was not signed by the alleged author then that header will be
+   absent.
+
+*  `.fromhere` - a boolean flag that is set if the `.author` field is
+   non-*null*; an integer either 1 or 0.
+
+*  `filesize` - the number of bytes in the bundle's payload; an integer zero or
+   positive with a maximum value of 2^64 − 1.
+
+*  `filehash` - if the bundle has a non-empty payload, then the [SHA-512][]
+   hash of the payload content; a string containing 128 hexadecimal digits,
+   otherwise *null* if the payload is empty (*filesize* = 0).
+
+*  `sender` - the [SID][] of the bundle's sender; either a string containing 64
+   hexadecimal digits, or *null* if the manifest has no *sender* field.
+
+*  `recipient` - the [SID][] of the bundle's recipient; either a string
+   containing 64 hexadecimal digits, or *null* if the manifest has no
+   *recipient* field.
+
+*  `name` - the string value of the manifest's *name* field, or *null* if the
+   manifest has no *name* field.
 
 ### GET /restful/rhizome/newsince/TOKEN/bundlelist.json
 
@@ -571,6 +816,7 @@ Available under the [Creative Commons Attribution 4.0 International licence][CC 
 [MSP]: http://developer.servalproject.org/dokuwiki/doku.php?id=content:tech:msp
 [SID]: http://developer.servalproject.org/dokuwiki/doku.php?id=content:tech:sid
 [DID]: http://developer.servalproject.org/dokuwiki/doku.php?id=content:tech:did
+[BID]: http://developer.servalproject.org/dokuwiki/doku.php?id=content:tech:bid
 [Basic Authentication]: https://en.wikipedia.org/wiki/Basic_access_authentication
 [API]: https://en.wikipedia.org/wiki/Application_programming_interface
 [HTTP REST]: https://en.wikipedia.org/wiki/Representational_state_transfer
@@ -582,3 +828,7 @@ Available under the [Creative Commons Attribution 4.0 International licence][CC 
 [JSON]: https://en.wikipedia.org/wiki/JSON
 [UTF-8]: https://en.wikipedia.org/wiki/UTF-8
 [jq(1)]: https://stedolan.github.io/jq/
+[idempotent]: https://en.wikipedia.org/wiki/Idempotence
+[Unix time]: https://en.wikipedia.org/wiki/Unix_time
+[Y2038 problem]: https://en.wikipedia.org/wiki/Year_2038_problem
+[SHA-512]: https://en.wikipedia.org/wiki/SHA-2
