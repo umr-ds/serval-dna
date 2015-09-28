@@ -38,6 +38,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "keyring.h"
 #include "commandline.h"
 #include "mdp_client.h"
+#include "route_link.h"
 
 #define PROC_SUBDIR	  "proc"
 #define PIDFILE_NAME	  "servald.pid"
@@ -583,6 +584,8 @@ void cf_on_config_change()
     TIME_MS_NEVER_WILL,
     now+config.server.config_reload_interval_ms+100);
 
+  // Open the Rhizome database immediately if Rhizome is enabled and close it if disabled; this
+  // cannot be deferred because is_rhizome_http_enabled() only returns true if the database is open.
   if (config.rhizome.enable){
     rhizome_opendb();
     RESCHEDULE(&ALARM_STRUCT(rhizome_clean_db), now + 30*60*1000, TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL);
