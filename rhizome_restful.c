@@ -305,7 +305,7 @@ static int restful_rhizome_bundlelist_json_content_chunk(struct http_request *hr
 	    break;
 	  default:
 	    strbuf_json_null(b);
-	    strbuf_puts(b, ",1,");
+	    strbuf_puts(b, ",0,");
 	    break;
 	}
 	strbuf_sprintf(b, "%"PRIu64, m->filesize);
