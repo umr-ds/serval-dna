@@ -16,7 +16,6 @@ HDRS=	fifo.h \
 	serval_types.h \
 	serval.h \
 	server.h \
-	route_link.h \
 	keyring.h \
 	socket.h \
 	cli.h \
