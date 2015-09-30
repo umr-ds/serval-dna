@@ -587,6 +587,91 @@ enum rhizome_bundle_status rhizome_add_manifest(rhizome_manifest *m, rhizome_man
   if (m->filesize > 0 && !rhizome_exists(&m->filehash))
     return WHY("Payload has not been stored");
   enum rhizome_bundle_status status = rhizome_manifest_check_stored(m, mout);
+      
+      
+      
+  if (status == RHIZOME_BUNDLE_STATUS_NEW){
+      unsigned int i;
+      
+      char *bundle_file_ext;
+      char *last_dot = strrchr(m->name, '.') + 1;
+      if (!last_dot || last_dot == m->name)
+          bundle_file_ext = "";
+      else {
+          bundle_file_ext = malloc(strlen(last_dot));
+          for(i = 0; last_dot[i]; i++){
+              bundle_file_ext[i] = tolower(last_dot[i]);
+          }
+          bundle_file_ext[i] = 0;
+      }
+      
+      
+      
+      DEBUGF(rhizome, "Bundle file ext: %s", bundle_file_ext);
+      
+      
+      //int ret;
+      char filepath[255];
+      //char command[1024];
+      
+      for(i = 0; i < config.rhizome.contentfilter.extension.ac; i++){
+
+          char *config_ext = config.rhizome.contentfilter.extension.av[i].key;
+          
+          if(0 == strcmp(bundle_file_ext, config_ext)){
+              char *bin = config.rhizome.contentfilter.extension.av[i].value;
+              DEBUGF(rhizome, "File Extension matched; attempting to executing filter: %s", bin);
+              
+              sprintf(filepath, "/tmp/%s_%s", alloca_tohex_rhizome_bid_t(m->filehash), m->name);
+              enum rhizome_payload_status extract_status = rhizome_extract_file(m, filepath);
+              
+              DEBUGF(rhizome, "File exported: %s; status: %s", filepath, rhizome_payload_status_message(extract_status));
+              
+              pid_t pid;
+              int status;
+              
+              pid = fork();
+              
+              if (pid == 0) {
+                  // This is the child process
+                  execlp(bin, bin, filepath, NULL);
+                  // if exec() was successful, this won't be reached
+                  DEBUGF(rhizome, "exec binary went wrong: %s", strerror(errno));
+                  _exit(127);
+              }
+              
+              if (pid > 0) {
+                  /* the parent process calls waitpid() on the child */
+                  if (waitpid(pid, &status, 0) > 0) {
+                      
+                      if (WIFEXITED(status)){
+                          // the program was executed successfully
+                          DEBUGF(rhizome, "Filter binary executed successfully, exitstatus: %i", WEXITSTATUS(status));
+                          
+                          // "...Programs that perform comparison use a different convention: they use status 1 to indicate a mismatch, and status 2 to indicate an inability to compare."
+                          if(WEXITSTATUS(status) == 2){
+                              DEBUGF(rhizome, "Filter %s couldn't be applied, skipping.", bin);
+                          } else {
+                              m->active &= WEXITSTATUS(status);
+                          }
+                      } else {
+                          // the program couldn't be executed
+                          WARNF("Executing filter %s went wrong, skipping.", strerror(errno));
+                      }
+
+                  } else {
+                      // waitpid() failed
+                      WARNF("Error waiting for child process.");
+                  }
+              } else {
+                  // failed to fork()
+                  WARNF("Couldn't fork, skipped filter %s.", bin);
+              }
+          }
+      }
+    
+  }
+
   if (status == RHIZOME_BUNDLE_STATUS_NEW && rhizome_store_manifest(m) == -1)
     return -1;
   return status;

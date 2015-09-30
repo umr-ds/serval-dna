@@ -420,6 +420,16 @@ ATOM(bool_t,                private,  0, boolean,, "If true, private Rhizome bun
 ATOM(bool_t,                public,   0, boolean,, "If true, public Rhizome bundles are not announced")
 END_STRUCT
 
+ARRAY(fileexts,)
+KEY_STRING(25, str)
+VALUE_STRING(255, str)
+END_ARRAY(10)
+
+STRUCT(rhizome_contentfilter)
+SUB_STRUCT(fileexts,        extension,)
+END_STRUCT
+
+
 STRUCT(rhizome)
 ATOM(bool_t,                enable,         1, boolean,, "If true, server opens Rhizome database when starting")
 ATOM(bool_t,                fetch,          1, boolean,, "If false, no new bundles will be fetched from peers")
@@ -439,6 +449,7 @@ SUB_STRUCT(rhizome_http,    http,)
 SUB_STRUCT(rhizome_mdp,     mdp,)
 SUB_STRUCT(rhizome_advertise, advertise,)
 SUB_STRUCT(rhizome_filter, filter,)
+SUB_STRUCT(rhizome_contentfilter, contentfilter,)
 END_STRUCT
 
 STRUCT(directory)

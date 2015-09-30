@@ -423,7 +423,7 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
 
   // Create SQL-String
   char *sqlstring = malloc(255);
-  sprintf(sqlstring, "SELECT rowid, bar, name FROM MANIFESTS WHERE");
+  sprintf(sqlstring, "SELECT rowid, bar, name FROM MANIFESTS WHERE active = 1 AND");
 
   if (config.rhizome.filter.announcetime > 0){
      sprintf(sqlstring, "%s %s AND", sqlstring, "inserttime > ?");
@@ -447,7 +447,7 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
     sprintf(sqlstring, "%s rowid <= ? ORDER BY rowid DESC", sqlstring);
   }
 
-  //WARN(sqlstring);
+//  WARN(sqlstring);
 
   statement = sqlite_prepare(&retry, sqlstring);
   if (!statement)
@@ -503,12 +503,6 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
         /* Free compiled regular expression if you want to use the regex_t again */
         regfree(&regex);
     }
-
-
-
-    sprintf(out, "Message %s is announced", name);
-    WARN(out);
-
 
     if (bar_size != RHIZOME_BAR_BYTES)
       continue;

@@ -228,6 +228,11 @@ typedef struct rhizome_manifest
    * have an ANY author (all zeros).
    */
   sid_t author;
+    
+  
+  /* used to indicate, if the external tool accepted the file for propagation
+  */
+  uint64_t active;
 
   /* Unused.  SHOULD BE DELETED.
    */

@@ -247,7 +247,8 @@ int rhizome_opendb()
 		      "name text, "
 		      "sender text collate nocase, "
 		      "recipient text collate nocase, "
-		      "tail integer"
+		      "tail integer, "
+              "active integer"
 		  ");", END) == -1
       ||	sqlite_exec_void_retry(&retry, 
 		  "CREATE TABLE IF NOT EXISTS FILES("
@@ -1315,9 +1316,10 @@ int rhizome_store_manifest(rhizome_manifest *m)
 	  "name,"
 	  "sender,"
 	  "recipient,"
-	  "tail"
+	  "tail,"
+      "active"
 	") VALUES("
-	  "?,?,?,?,?,?,?,?,?,?,?,?,?"
+	  "?,?,?,?,?,?,?,?,?,?,?,?,?,?"
 	");",
 	RHIZOME_BID_T, &m->cryptoSignPublic,
 	STATIC_BLOB, m->manifestdata, m->manifest_all_bytes,
@@ -1333,6 +1335,7 @@ int rhizome_store_manifest(rhizome_manifest *m)
 	SID_T|NUL, m->has_sender ? &m->sender : NULL,
 	SID_T|NUL, m->has_recipient ? &m->recipient : NULL,
 	INT64, m->tail,
+    INT64, m->active,
 	END
       )
   ) == NULL)
