@@ -31,3 +31,4 @@ test.*.log
 /testlog
 /coverage_html
 *.info
+*.xcodeproj
