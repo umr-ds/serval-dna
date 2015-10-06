@@ -2,17 +2,17 @@
 Serval DNA - Rhizome entry points
 Copyright (C) 2012-2013 Serval Project Inc.
 Copyright (C) 2011-2012 Paul Gardner-Stephen
- 
+
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
 as published by the Free Software Foundation; either version 2
 of the License, or (at your option) any later version.
- 
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
- 
+
 You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
@@ -344,15 +344,15 @@ enum rhizome_bundle_status rhizome_bundle_import_files(rhizome_manifest *m, rhiz
   DEBUGF(rhizome, "(manifest_path=%s, filepath=%s)",
 	 manifest_path ? alloca_str_toprint(manifest_path) : "NULL",
 	 filepath ? alloca_str_toprint(filepath) : "NULL");
-  
+
   size_t buffer_len = 0;
   int ret = 0;
-  
+
   // manifest has been appended to the end of the file.
   if (strcmp(manifest_path, filepath)==0){
     unsigned char marker[4];
     FILE *f = fopen(filepath, "r");
-    
+
     if (f == NULL)
       return WHYF_perror("Could not open manifest file %s for reading.", filepath);
     if (fseek(f, -sizeof(marker), SEEK_END))
@@ -443,8 +443,8 @@ int rhizome_manifest_add_bundle_key(rhizome_manifest *m)
     case AUTHOR_IMPOSTOR: {
 	/* Set the BK using the provided author.  Serval Security Framework defines BK as being:
 	*    BK = privateKey XOR sha512(RS##BID)
-	* where BID = cryptoSignPublic, 
-	*       RS is the rhizome secret for the specified author. 
+	* where BID = cryptoSignPublic,
+	*       RS is the rhizome secret for the specified author.
 	* The nice thing about this specification is that:
 	*    privateKey = BK XOR sha512(RS##BID)
 	* so the same function can be used to encrypt and decrypt the BK field.
@@ -591,20 +591,20 @@ enum rhizome_bundle_status rhizome_add_manifest(rhizome_manifest *m, rhizome_man
   if(status == RHIZOME_BUNDLE_STATUS_NEW)
     rhizome_apply_filter(m);
 
-      
+
   if (status == RHIZOME_BUNDLE_STATUS_NEW && rhizome_store_manifest(m) == -1)
     return -1;
   return status;
 }
 
 void rhizome_apply_filter(rhizome_manifest *m){
-    
+
     if (config.rhizome.contentfilter.extension.ac == 0)
         return;
 
     if (0 == strcmp("file", m->service)){
         unsigned int i;
-        
+
         char *bundle_file_ext;
         char *last_dot = strrchr(m->name, '.');
         if (!last_dot || last_dot == m->name)
@@ -617,18 +617,28 @@ void rhizome_apply_filter(rhizome_manifest *m){
             }
             bundle_file_ext[i] = 0;
         }
-        
+
         DEBUGF(rhizome, "Bundle file ext: %s", bundle_file_ext);
         char exportpath[255];
-        sprintf(exportpath, "/tmp/%s_%s", alloca_tohex_rhizome_bid_t(m->filehash), m->name);
-        
+        sprintf(exportpath, "/tmp/%s_%s", alloca_tohex_rhizome_filehash_t(m->filehash), m->name);
+
+        char existing_blob_path[255];
+        sprintf(existing_blob_path, "%s/%s/%s", SERVAL_CACHE_PATH, RHIZOME_BLOB_SUBDIR, alloca_tohex_rhizome_filehash_t(m->filehash));
+
         for(i = 0; i < config.rhizome.contentfilter.extension.ac; i++){
             char *config_ext = config.rhizome.contentfilter.extension.av[i].key;
-            
+
             if(0 == strcmp(bundle_file_ext, config_ext)){
                 char *bin = config.rhizome.contentfilter.extension.av[i].value;
                 DEBUGF(rhizome, "File Extension matched; attempting to executing filter: %s", bin);
-                
+
+                if( access( existing_blob_path, F_OK ) != -1 ) {
+                    // file exists
+                    WARNF("File %s exists already as blob", tmp);
+                } else {
+                    WARNF("File %s DOES NOT exist in blob", tmp);
+                }
+
                 if( access( exportpath, F_OK ) != -1 ) {
                     DEBUGF(rhizome, "File already exported: %s", exportpath);
                     // file exists do nothing
@@ -637,7 +647,7 @@ void rhizome_apply_filter(rhizome_manifest *m){
                     chmod(exportpath, (S_IRUSR | S_IRGRP | S_IROTH));
                     DEBUGF(rhizome, "File exported: %s; status: %s", exportpath, rhizome_payload_status_message(extract_status));
                 }
-                
+
                 pid_t pid = fork();
                 int status;
                 if (pid == 0) {
@@ -646,14 +656,14 @@ void rhizome_apply_filter(rhizome_manifest *m){
                     // if exec() was successful, this won't be reached
                     DEBUGF(rhizome, "exec binary went wrong: %s", strerror(errno));
                 }
-                
+
                 if (pid > 0) {
                     // parent process calls waitpid() on the child
                     if (waitpid(pid, &status, 0) > 0) {
-                        
+
                         if (WIFEXITED(status)){
                             DEBUGF(rhizome, "Filter binary executed successfully, exitstatus: %i", WEXITSTATUS(status));
-                            
+
                             // "...Programs that perform comparison use a different convention: they use status 1 to indicate a mismatch, and status 2 to indicate an inability to compare."
                             if(WEXITSTATUS(status) == 2){
                                 DEBUGF(rhizome, "Filter %s couldn't be applied, skipping.", bin);
@@ -663,7 +673,7 @@ void rhizome_apply_filter(rhizome_manifest *m){
                         } else {
                             WARNF("Executing filter %s went wrong, skipping.", strerror(errno));
                         }
-                        
+
                     } else {
                         WARNF("Error waiting for child process.");
                     }
@@ -672,9 +682,9 @@ void rhizome_apply_filter(rhizome_manifest *m){
                 }
             }
         }
-        
+
         free(bundle_file_ext);
-        
+
         if( access( exportpath, F_OK ) != -1 ) {
             // file exists
             if ( 0 != remove(exportpath) ){
