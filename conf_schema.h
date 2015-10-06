@@ -427,6 +427,7 @@ END_ARRAY(10)
 
 STRUCT(rhizome_contentfilter)
 SUB_STRUCT(fileexts,        extension,)
+STRING(255,                 sid,      "", str_nonempty,, "SID for contentfilters to add files after applying filters")
 END_STRUCT
 
 

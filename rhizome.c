@@ -589,7 +589,7 @@ enum rhizome_bundle_status rhizome_add_manifest(rhizome_manifest *m, rhizome_man
   enum rhizome_bundle_status status = rhizome_manifest_check_stored(m, mout);
 
   if(status == RHIZOME_BUNDLE_STATUS_NEW)
-    rhizome_apply_filter(m);
+    rhizome_apply_contentfilters(m);
 
 
   if (status == RHIZOME_BUNDLE_STATUS_NEW && rhizome_store_manifest(m) == -1)
@@ -597,7 +597,7 @@ enum rhizome_bundle_status rhizome_add_manifest(rhizome_manifest *m, rhizome_man
   return status;
 }
 
-void rhizome_apply_filter(rhizome_manifest *m){
+void rhizome_apply_contentfilters(rhizome_manifest *m){
 
     if (config.rhizome.contentfilter.extension.ac == 0)
         return;
@@ -619,11 +619,17 @@ void rhizome_apply_filter(rhizome_manifest *m){
         }
 
         DEBUGF(rhizome, "Bundle file ext: %s", bundle_file_ext);
-        char exportpath[255];
-        sprintf(exportpath, "/tmp/%s_%s", alloca_tohex_rhizome_filehash_t(m->filehash), m->name);
+        
+        char export_path[1024];
+        if (!FORMF_SERVAL_TMP_PATH(export_path, "%s", alloca_tohex_rhizome_filehash_t(m->filehash)))
+            return;
 
-        char existing_blob_path[255];
-        sprintf(existing_blob_path, "%s/%s/%s", SERVAL_CACHE_PATH, RHIZOME_BLOB_SUBDIR, alloca_tohex_rhizome_filehash_t(m->filehash));
+        char existing_blob_path[1024];
+        if (!FORMF_RHIZOME_STORE_PATH(existing_blob_path, "%s/%s", RHIZOME_BLOB_SUBDIR, alloca_tohex_rhizome_filehash_t(m->filehash)))
+            return;
+        DEBUGF(rhizome, "Potential Rhizome Blob Path: %s", existing_blob_path);
+        
+        char* filepath;
 
         for(i = 0; i < config.rhizome.contentfilter.extension.ac; i++){
             char *config_ext = config.rhizome.contentfilter.extension.av[i].key;
@@ -634,25 +640,29 @@ void rhizome_apply_filter(rhizome_manifest *m){
 
                 if( access( existing_blob_path, F_OK ) != -1 ) {
                     // file exists
-                    WARNF("File %s exists already as blob", tmp);
+                    WARNF("File exists already as blob: %s", existing_blob_path);
+                    filepath = existing_blob_path;
+                } else if( access( export_path, F_OK ) != -1 ) {
+                    // file exists, do nothing
+                    DEBUGF(rhizome, "File was already exported: %s", export_path);
+                    filepath = export_path;
                 } else {
-                    WARNF("File %s DOES NOT exist in blob", tmp);
-                }
-
-                if( access( exportpath, F_OK ) != -1 ) {
-                    DEBUGF(rhizome, "File already exported: %s", exportpath);
-                    // file exists do nothing
-                } else {
-                    enum rhizome_payload_status extract_status = rhizome_extract_file(m, exportpath);
-                    chmod(exportpath, (S_IRUSR | S_IRGRP | S_IROTH));
-                    DEBUGF(rhizome, "File exported: %s; status: %s", exportpath, rhizome_payload_status_message(extract_status));
+                    WARNF("File %s DOES NOT exist in blob", existing_blob_path);
+                    enum rhizome_payload_status extract_status = rhizome_extract_file(m, export_path);
+                    chmod(export_path, (S_IRUSR | S_IRGRP | S_IROTH));
+                    DEBUGF(rhizome, "File exported: %s; status: %s", export_path, rhizome_payload_status_message(extract_status));
+                    filepath = export_path;
                 }
 
                 pid_t pid = fork();
                 int status;
                 if (pid == 0) {
                     // We're in the child process
-                    execlp(bin, bin, exportpath, NULL);
+//                    execlp(bin, bin, filepath, m->name, m->filesize, alloca_tohex_rhizome_filehash_t(m->filehash), config.rhizome.contentfilter.sid, NULL);
+                    char filesize_string[32];
+                    DEBUGF(rhizome, "MY SID: %s", config.rhizome.contentfilter.sid);
+                    sprintf(filesize_string, "%llu", m->filesize);
+                    execlp(bin, bin, filepath, m->name, filesize_string, alloca_tohex_rhizome_filehash_t(m->filehash), config.rhizome.contentfilter.sid, NULL);
                     // if exec() was successful, this won't be reached
                     DEBUGF(rhizome, "exec binary went wrong: %s", strerror(errno));
                 }
@@ -685,13 +695,13 @@ void rhizome_apply_filter(rhizome_manifest *m){
 
         free(bundle_file_ext);
 
-        if( access( exportpath, F_OK ) != -1 ) {
+        if( access( export_path, F_OK ) != -1 ) {
             // file exists
-            if ( 0 != remove(exportpath) ){
+            if ( 0 != remove(export_path) ){
                 // removing file failed
-                WARNF("Couldn't remove file: %s", exportpath);
+                WARNF("Couldn't remove file: %s", export_path);
             } else {
-                DEBUGF(rhizome, "File deleted: %s", exportpath);
+                DEBUGF(rhizome, "File deleted: %s", export_path);
             }
         }
     }
