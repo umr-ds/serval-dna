@@ -49,6 +49,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include <stdlib.h>
 #include <assert.h>
+#include <sys/wait.h>
 #include "serval.h"
 #include "conf.h"
 #include "str.h"
@@ -597,22 +598,22 @@ enum rhizome_bundle_status rhizome_add_manifest(rhizome_manifest *m, rhizome_man
   return status;
 }
 
-/* 
+/*
  The heart of contentfilter implementation (for files).
  calls the different implemented contentfilters
  removes up potentially created tmp files
  */
 void rhizome_apply_contentfilters(rhizome_manifest *m){
-    
+
     enum rhizome_payload_status filestatus;
     char filepath[1024];
-    
+
     if (0 != strcmp("file", m->service)){
         return;
     }
-    
+
     rhizome_apply_contentfilter_extension(m, filepath, &filestatus);
-    
+
     // remove potentially created file
     if( filestatus == RHIZOME_PAYLOAD_STATUS_STORED ) {
         // file exists
@@ -626,38 +627,38 @@ void rhizome_apply_contentfilters(rhizome_manifest *m){
 }
 
 void rhizome_apply_contentfilter_extension(rhizome_manifest *m, char filepath[1024], enum rhizome_payload_status *filestatus){
-    
+
     // no file extension contentfilters are specified, skipping
     if (config.rhizome.contentfilter.extension.ac == 0)
         return;
-    
+
     unsigned int i;
     char *bundle_file_ext;
     char *last_dot = strrchr(m->name, '.');
-    
+
     // file has no extension, skipping
     if (!last_dot || last_dot == m->name) {
         return;
     } else {
         last_dot = last_dot + 1;
         bundle_file_ext = malloc(strlen(last_dot));
-        
+
         for(i = 0; last_dot[i]; i++)
             bundle_file_ext[i] = tolower(last_dot[i]);
 
         // make sure,that string is nulled.
         bundle_file_ext[i] = 0;
     }
-    
+
     DEBUGF(rhizome, "Found file extension %s in file: %s", bundle_file_ext, m->name);
-    
+
     for(i = 0; i < config.rhizome.contentfilter.extension.ac; i++){
         char *config_ext = config.rhizome.contentfilter.extension.av[i].key;
-        
+
         if(0 == strcmp(bundle_file_ext, config_ext)){
             char *bin = config.rhizome.contentfilter.extension.av[i].value;
             DEBUGF(rhizome, "File Extension matched; attempting to executing filter: %s", bin);
-            
+
             *filestatus = rhizome_export_or_link_blob(m, filepath);
             if ( *filestatus == RHIZOME_PAYLOAD_STATUS_ERROR ){
                 WARNF("Rhizome file %s couldn't be exported. Not applying extension contentfilter %s", m->name, bin);
@@ -676,7 +677,7 @@ void rhizome_apply_contentfilter_extension(rhizome_manifest *m, char filepath[10
  returns RHIZOME_PAYLOAD_STATUS_TOO_BIG, if file from rhizome store is recycled
  */
 int rhizome_export_or_link_blob(rhizome_manifest *m, char return_buffer[1024]){
-    
+
     char buffer[1024];
 
     // If blob already exists in rhizome blobs, just return its path
@@ -688,55 +689,55 @@ int rhizome_export_or_link_blob(rhizome_manifest *m, char return_buffer[1024]){
         memcpy(return_buffer, buffer, 1024);
         return RHIZOME_PAYLOAD_STATUS_TOO_BIG;
     }
-    
+
     // generate tmp export path
     if (!FORMF_SERVAL_TMP_PATH(buffer, "%s", alloca_tohex_rhizome_filehash_t(m->filehash)))
         return RHIZOME_PAYLOAD_STATUS_ERROR;
-    
+
     // if file already exists in tmp, return the path
     if( access( buffer, R_OK ) == 0 ) {
         DEBUGF(rhizome, "File was already exported: %s", buffer);
         memcpy(return_buffer, buffer, 1024);
         return RHIZOME_PAYLOAD_STATUS_STORED;
     }
-    
+
     // export file to tmp path
     DEBUGF(rhizome, "File %s DOES NOT exist in blob", buffer);
     enum rhizome_payload_status extract_status = rhizome_extract_file(m, buffer);
     chmod(buffer, (S_IRUSR | S_IRGRP | S_IROTH));
     DEBUGF(rhizome, "File exported: %s; status: %s", buffer, rhizome_payload_status_message(extract_status));
-    
+
     memcpy(return_buffer, buffer, 1024);
     return extract_status;
 }
 
-/* 
+/*
  excecutes filter binary bin following the Contentfilter Calling Conventions
  if successful, the return value is binary anded to manifest status.
  returns nothing, filters are not applied if failing
  */
 void rhizome_excecute_filter_binary(rhizome_manifest *m, char *bin, char filepath[1024]){
-    
+
     int status;
     pid_t pid = fork();
-    
+
     if (pid == 0) {
         // We're in the child process
         char filesize_string[32];
         DEBUGF(rhizome, "MY SID: %s", config.rhizome.contentfilter.sid);
-        sprintf(filesize_string, "%llu", m->filesize);
+        sprintf(filesize_string, "%"PRIu64, m->filesize);
         execlp(bin, bin, filepath, m->name, filesize_string, alloca_tohex_rhizome_filehash_t(m->filehash), config.rhizome.contentfilter.sid, NULL);
         // if exec() was successful, this won't be reached
         WARNF("executing filter binary went wrong: %s", strerror(errno));
     }
-    
+
     if (pid > 0) {
         // parent process calls waitpid() on the child
         if (waitpid(pid, &status, 0) > 0) {
-            
+
             if (WIFEXITED(status)){
                 DEBUGF(rhizome, "Filter binary executed successfully, exitstatus: %i", WEXITSTATUS(status));
-                
+
                 // "...Programs that perform comparison use a different convention: they use status 1 to indicate a mismatch, and status 2 to indicate an inability to compare."
                 if(WEXITSTATUS(status) == 2){
                     WARNF("Filter %s couldn't be applied, skipping.", bin);
