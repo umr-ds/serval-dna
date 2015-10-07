@@ -495,6 +495,9 @@ enum rhizome_bundle_status rhizome_manifest_finalise(rhizome_manifest *m, rhizom
 enum rhizome_bundle_status rhizome_manifest_check_stored(rhizome_manifest *m, rhizome_manifest **m_out);
 enum rhizome_bundle_status rhizome_add_manifest(rhizome_manifest *m_in, rhizome_manifest **m_out);
 void rhizome_apply_contentfilters(rhizome_manifest *m);
+int rhizome_export_or_link_blob(rhizome_manifest *m, char return_buffer[1024]);
+void rhizome_excecute_filter_binary(rhizome_manifest *m, char *bin, char filepath[1024]);
+void rhizome_apply_contentfilter_extension(rhizome_manifest *m, char filepath[1024], enum rhizome_payload_status *filestatus);
 
 void rhizome_bytes_to_hex_upper(unsigned const char *in, char *out, int byteCount);
 int rhizome_find_privatekey(rhizome_manifest *m);
