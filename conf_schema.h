@@ -420,15 +420,27 @@ ATOM(bool_t,                private,  0, boolean,, "If true, private Rhizome bun
 ATOM(bool_t,                public,   0, boolean,, "If true, public Rhizome bundles are not announced")
 END_STRUCT
 
-ARRAY(fileexts,)
-KEY_STRING(25, str)
-VALUE_STRING(255, str)
+ARRAY(contentfilter_extension_list, NO_DUPLICATES)
+KEY_ATOM(unsigned, uint)
+VALUE_STRING(32, str)
 END_ARRAY(10)
 
-STRUCT(rhizome_contentfilter)
-SUB_STRUCT(fileexts,        extension,)
-STRING(255,                 sid,      "", str_nonempty,, "SID for contentfilters to add files after applying filters")
+STRUCT(rhizome_contentfilter) //VALIDATOR(vld_network_interface))
+SUB_STRUCT(contentfilter_extension_list, extensions,)
+ATOM(bool_t,                match_noextension,  0, boolean,, "If true, filter will be applied to files without a file-extension.")
+ATOM(uint64_t,              min_size,   0,          uint64_scaled,, "Filter is applied, if File is bigger than min_size")
+ATOM(uint64_t,              max_size,   UINT64_MAX, uint64_scaled,, "Filter is applied, if File is smaller than max_size")
+STRING(1023,                bin,        "",         str_nonempty,,  "The Filter, which is executed if criterias match.")
+STRING(1023,                regex,      "",        str_nonempty,,  "Filter is applied, if manifest filename matches regex.")
+ATOM(sid_t,                 author,     SID_ANY,    sid,,           "SID that is used to insert altered files into rhizome store")
 END_STRUCT
+
+ARRAY(contentfilter_list, NO_DUPLICATES)
+KEY_ATOM(unsigned, uint)
+VALUE_SUB_STRUCT(rhizome_contentfilter)
+END_ARRAY(10)
+
+// end contentfilters
 
 
 STRUCT(rhizome)
@@ -449,8 +461,8 @@ SUB_STRUCT(rhizome_api,     api,)
 SUB_STRUCT(rhizome_http,    http,)
 SUB_STRUCT(rhizome_mdp,     mdp,)
 SUB_STRUCT(rhizome_advertise, advertise,)
-SUB_STRUCT(rhizome_filter, filter,)
-SUB_STRUCT(rhizome_contentfilter, contentfilter,)
+SUB_STRUCT(rhizome_filter,  filter,)
+SUB_STRUCT(contentfilter_list, contentfilters,)
 END_STRUCT
 
 STRUCT(directory)

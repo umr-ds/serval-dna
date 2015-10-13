@@ -49,6 +49,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include <stdlib.h>
 #include <assert.h>
+#include <regex.h>
 #include "serval.h"
 #include "conf.h"
 #include "str.h"
@@ -604,15 +605,18 @@ enum rhizome_bundle_status rhizome_add_manifest(rhizome_manifest *m, rhizome_man
  */
 void rhizome_apply_contentfilters(rhizome_manifest *m){
     
-    enum rhizome_payload_status filestatus;
+    enum rhizome_payload_status filestatus = RHIZOME_PAYLOAD_STATUS_STORED;
     char filepath[1024];
+    unsigned int i;
     
     if (0 != strcmp("file", m->service)){
         return;
     }
     
-    rhizome_apply_contentfilter_extension(m, filepath, &filestatus);
-    
+    for (i = 0; i < config.rhizome.contentfilters.ac; i++){
+        rhizome_apply_contentfilter(&config.rhizome.contentfilters.av[i].value, m, filepath, &filestatus);
+    }
+
     // remove potentially created file
     if( filestatus == RHIZOME_PAYLOAD_STATUS_STORED ) {
         // file exists
@@ -625,48 +629,92 @@ void rhizome_apply_contentfilters(rhizome_manifest *m){
     }
 }
 
-void rhizome_apply_contentfilter_extension(rhizome_manifest *m, char filepath[1024], enum rhizome_payload_status *filestatus){
+void rhizome_apply_contentfilter(const struct config_rhizome_contentfilter *filter, rhizome_manifest *m, char filepath[1024], enum rhizome_payload_status *filestatus){
     
-    // no file extension contentfilters are specified, skipping
-    if (config.rhizome.contentfilter.extension.ac == 0)
-        return;
+    char file_ext[32];
+    get_file_extension(m->name, file_ext);
     
-    unsigned int i;
-    char *bundle_file_ext;
-    char *last_dot = strrchr(m->name, '.');
+    char match = 1;
+    char ext_match = 0;
     
-    // file has no extension, skipping
-    if (!last_dot || last_dot == m->name) {
-        return;
-    } else {
-        last_dot = last_dot + 1;
-        bundle_file_ext = malloc(strlen(last_dot));
-        
-        for(i = 0; last_dot[i]; i++)
-            bundle_file_ext[i] = tolower(last_dot[i]);
-
-        // make sure,that string is nulled.
-        bundle_file_ext[i] = 0;
-    }
-    
-    DEBUGF(rhizome, "Found file extension %s in file: %s", bundle_file_ext, m->name);
-    
-    for(i = 0; i < config.rhizome.contentfilter.extension.ac; i++){
-        char *config_ext = config.rhizome.contentfilter.extension.av[i].key;
-        
-        if(0 == strcmp(bundle_file_ext, config_ext)){
-            char *bin = config.rhizome.contentfilter.extension.av[i].value;
-            DEBUGF(rhizome, "File Extension matched; attempting to executing filter: %s", bin);
-            
-            *filestatus = rhizome_export_or_link_blob(m, filepath);
-            if ( *filestatus == RHIZOME_PAYLOAD_STATUS_ERROR ){
-                WARNF("Rhizome file %s couldn't be exported. Not applying extension contentfilter %s", m->name, bin);
-                break;
+    if (filter->extensions.ac > 0){
+        if (file_ext[0] == '\0'){
+            match &= filter->match_noextension;
+        } else {
+            for (unsigned int i = 0; i < filter->extensions.ac; i++){
+                // strcmp equals 0, if strings are equal.
+                int this_ext_match = !strcmp(file_ext, filter->extensions.av[i].value);
+                DEBUGF(rhizome, "Matching filter ext: %s, file_ext: %s, this_ext_match: %i", filter->extensions.av[i].value, file_ext, this_ext_match);
+                ext_match |= this_ext_match;
             }
-            rhizome_excecute_filter_binary(m, bin, filepath);
+            match &= ext_match;
         }
     }
-    free(bundle_file_ext);
+    
+    DEBUGF(rhizome, "Contentfilters #Extensions: %i, match_noextensions: %i, filename: %s, match: %i", filter->extensions.ac, filter->match_noextension, m->name, match);
+    
+    match &= ( filter->min_size < m->filesize );
+    DEBUGF(rhizome, "Contentfilters min_size: %u, file size: %u, match: %i", filter->min_size, m->filesize, match);
+    
+    match &= ( filter->max_size > m->filesize );
+    DEBUGF(rhizome, "Contentfilters max_size: %u, file size: %u, match: %i", filter->max_size, m->filesize, match);
+    
+    
+    regex_t regex;
+    if (filter->regex[0]) {
+        DEBUGF(rhizome, "Contentfilters no regex set, skipping, match: %i", match);
+    } else if (regcomp(&regex, filter->regex, 0)) {
+        DEBUGF(rhizome, "Contentfilters compilation of regex %s failed. Skipping regex.", filter->regex);
+        regfree(&regex);
+    } else {
+        match &= regexec(&regex, m->name, 0, NULL, 0);
+        DEBUGF(rhizome, "Contentfilters regex: %s, match: %i", match);
+        regfree(&regex);
+    }
+
+    
+    if (match) {
+        
+        DEBUGF(rhizome, "Contentfilter matched for %s", m->name);
+        
+        *filestatus = rhizome_export_or_link_blob(m, filepath);
+        if ( *filestatus == RHIZOME_PAYLOAD_STATUS_ERROR ){
+            WARNF("Rhizome file %s couldn't be exported.", m->name);
+            return;
+        }
+        
+        rhizome_excecute_filter_binary(m, filter->bin, filter->author, filepath);
+    }
+}
+
+void get_file_extension(const char* filename, char file_ext[32]){
+    char *last_dot = strrchr(filename, '.');
+    
+    if (last_dot){
+        if (last_dot[1] == '\0'){
+            DEBUGF(rhizome, "No file extension found in %s (last char is dot)", filename);
+            file_ext[0] = '\0';
+            return;
+        } else if (last_dot == filename){
+            DEBUGF(rhizome, "No file extension found in %s (dotfile)", filename);
+            file_ext[0] = '\0';
+            return;
+        } else {
+            DEBUGF(rhizome, "File extension found: %s", last_dot+1);
+            last_dot = last_dot + 1;
+            int i;
+            for(i = 0; last_dot[i] && i < 31; i++)
+                file_ext[i] = tolower(last_dot[i]);
+            
+            // make sure, that string is nulled.
+            file_ext[i] = 0;
+            return;
+        }
+    } else {
+        DEBUGF(rhizome, "No file extension found in %s (no dot)", filename);
+        file_ext[0] = '\0';
+        return;
+    }
 }
 
 /*
@@ -678,13 +726,13 @@ void rhizome_apply_contentfilter_extension(rhizome_manifest *m, char filepath[10
 int rhizome_export_or_link_blob(rhizome_manifest *m, char return_buffer[1024]){
     
     char buffer[1024];
-
+    
     // If blob already exists in rhizome blobs, just return its path
     if (!FORMF_RHIZOME_STORE_PATH(buffer, "%s/%s", RHIZOME_BLOB_SUBDIR, alloca_tohex_rhizome_filehash_t(m->filehash)))
         return RHIZOME_PAYLOAD_STATUS_ERROR;
-    DEBUGF(rhizome, "STORE PATH String: %s", buffer);
+    
     if( access( buffer, R_OK ) == 0 ) {
-        WARNF("File exists already as blob: %s", buffer);
+        DEBUGF(rhizome, "File exists already as blob: %s", buffer);
         memcpy(return_buffer, buffer, 1024);
         return RHIZOME_PAYLOAD_STATUS_TOO_BIG;
     }
@@ -701,7 +749,7 @@ int rhizome_export_or_link_blob(rhizome_manifest *m, char return_buffer[1024]){
     }
     
     // export file to tmp path
-    DEBUGF(rhizome, "File %s DOES NOT exist in blob", buffer);
+    DEBUGF(rhizome, "File %s does not exist in blob nor in tmp", buffer);
     enum rhizome_payload_status extract_status = rhizome_extract_file(m, buffer);
     chmod(buffer, (S_IRUSR | S_IRGRP | S_IROTH));
     DEBUGF(rhizome, "File exported: %s; status: %s", buffer, rhizome_payload_status_message(extract_status));
@@ -715,27 +763,27 @@ int rhizome_export_or_link_blob(rhizome_manifest *m, char return_buffer[1024]){
  if successful, the return value is binary anded to manifest status.
  returns nothing, filters are not applied if failing
  */
-void rhizome_excecute_filter_binary(rhizome_manifest *m, char *bin, char filepath[1024]){
+void rhizome_excecute_filter_binary(rhizome_manifest *m, const char bin[1024], sid_t sid, char filepath[1024]){
     
     int status;
-    pid_t pid = fork();
+    pid_t pid = vfork();
     
     if (pid == 0) {
         // We're in the child process
         char filesize_string[32];
-        DEBUGF(rhizome, "MY SID: %s", config.rhizome.contentfilter.sid);
+        DEBUGF(rhizome, "MY SID: %s", alloca_tohex_sid_t(sid));
         sprintf(filesize_string, "%llu", m->filesize);
-        execlp(bin, bin, filepath, m->name, filesize_string, alloca_tohex_rhizome_filehash_t(m->filehash), config.rhizome.contentfilter.sid, NULL);
+        execlp(bin, bin, filepath, m->name, filesize_string, alloca_tohex_rhizome_filehash_t(m->filehash), alloca_tohex_sid_t(sid), NULL);
         // if exec() was successful, this won't be reached
         WARNF("executing filter binary went wrong: %s", strerror(errno));
     }
     
     if (pid > 0) {
         // parent process calls waitpid() on the child
-        if (waitpid(pid, &status, 0) > 0) {
+        if (waitpid(pid, &status, 0)) {
             
             if (WIFEXITED(status)){
-                DEBUGF(rhizome, "Filter binary executed successfully, exitstatus: %i", WEXITSTATUS(status));
+                DEBUGF(rhizome, "Filter binary executed successfully, exited: %i, status: %i", WIFEXITED(status), WEXITSTATUS(status));
                 
                 // "...Programs that perform comparison use a different convention: they use status 1 to indicate a mismatch, and status 2 to indicate an inability to compare."
                 if(WEXITSTATUS(status) == 2){
