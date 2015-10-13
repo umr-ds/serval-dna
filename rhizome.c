@@ -50,6 +50,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <stdlib.h>
 #include <assert.h>
 #include <regex.h>
+#include <sys/wait.h>
 #include "serval.h"
 #include "conf.h"
 #include "str.h"
@@ -772,7 +773,7 @@ void rhizome_excecute_filter_binary(rhizome_manifest *m, const char bin[1024], s
         // We're in the child process
         char filesize_string[32];
         DEBUGF(rhizome, "MY SID: %s", alloca_tohex_sid_t(sid));
-        sprintf(filesize_string, "%llu", m->filesize);
+        sprintf(filesize_string, "%"PRIu64, m->filesize);
         execlp(bin, bin, filepath, m->name, filesize_string, alloca_tohex_rhizome_filehash_t(m->filehash), alloca_tohex_sid_t(sid), NULL);
         // if exec() was successful, this won't be reached
         WARNF("executing filter binary went wrong: %s", strerror(errno));
