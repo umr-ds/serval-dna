@@ -29,7 +29,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "str.h"
 #include "conf.h"
 #include "strbuf.h"
-#include "strlcpy.h"
 #include "mdp_client.h"
 #include "overlay_address.h"
 #include "overlay_buffer.h"
@@ -619,7 +618,7 @@ static int vomp_update_local_state(struct vomp_call_state *call, int new_state){
     unsigned char our_codecs[CODEC_FLAGS_LENGTH];
     char msg[256];
     monitor_get_all_supported_codecs(our_codecs);
-    strbuf b = strbuf_local(msg, sizeof msg);
+    strbuf b = strbuf_local_buf(msg);
     strbuf_sprintf(b, "\nCODECS:%06x", call->local.session);
     
     for (i = 0; i < 256; ++i){
@@ -800,8 +799,8 @@ int vomp_dial(struct subscriber *local, struct subscriber *remote, const char *l
 					 0);
   
   /* Copy local / remote phone numbers */
-  strlcpy(call->local.did, local_did, sizeof(call->local.did));
-  strlcpy(call->remote.did, remote_did, sizeof(call->remote.did));
+  buf_strncpy_nul(call->local.did, local_did);
+  buf_strncpy_nul(call->remote.did, remote_did);
   
   vomp_update_local_state(call, VOMP_STATE_CALLPREP);
   // remember that we initiated this call, not the other party
@@ -855,9 +854,9 @@ static int vomp_extract_remote_codec_list(struct vomp_call_state *call, struct o
   if (!call->initiated_call){
     const char *p;
     if (ob_remaining(payload)>0 && (p=ob_get_str_ptr(payload))){
-      strlcpy(call->remote.did, p, sizeof(call->remote.did));
+      buf_strncpy_nul(call->remote.did, p);
       if (ob_remaining(payload)>0 && (p=ob_get_str_ptr(payload)))
-	strlcpy(call->local.did, p, sizeof(call->local.did));
+	buf_strncpy_nul(call->local.did, p);
     }
   }
   return 0;

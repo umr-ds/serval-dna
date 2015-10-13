@@ -237,13 +237,13 @@ static int _reserve(struct http_request *r, const char **resp, const char *src, 
   assert(r->reserved <= reslim);
   size_t siz = sizeof(char**) + len + 1;
   if (r->reserved + siz > reslim) {
-    r->response.result_code = 414;
+    r->response.result_code = 414; // Request-URI Too Long
     return 0;
   }
   if (r->reserved + siz > r->parsed) {
-    WARNF("Error during HTTP parsing, unparsed content %s would be overwritten by reserving %zu bytes",
-	alloca_toprint(30, r->parsed, r->end - r->parsed), len + 1
-      );
+    WHYF("Error during HTTP parsing, unparsed content %s would be overwritten by reserving %zu bytes",
+	 alloca_toprint(30, r->parsed, r->end - r->parsed), len + 1
+        );
     r->response.result_code = 500;
     return 0;
   }
@@ -269,6 +269,7 @@ static void _mover_mem(char *dst, const char *src, size_t len)
     memmove(dst, src, len);
 }
 
+#if 0
 /* Allocate space from the start of the request buffer to hold the given substring plus a
  * terminating NUL.
  *
@@ -281,6 +282,7 @@ static int _reserve_substring(struct http_request *r, const char **resp, struct 
   assert(strnchr(str.start, len, '\0') == NULL);
   return _reserve(r, resp, str.start, len, _mover_mem);
 }
+#endif
 
 /* The same as _reserve(), but takes a NUL-terminated string as a source argument instead of a
  * substring.
@@ -372,6 +374,21 @@ static inline int _skip_any(struct http_request *r)
   if (_run_out(r))
     return 0;
   ++r->cursor;
+  return 1;
+}
+
+static inline int _skip_if(struct http_request *r, int (*predicate)(int))
+{
+  if (_run_out(r) || !predicate(*r->cursor))
+    return 0;
+  ++r->cursor;
+  return 1;
+}
+
+static inline int _skip_while(struct http_request *r, int (*predicate)(int))
+{
+  while (!_run_out(r) && predicate(*r->cursor))
+    ++r->cursor;
   return 1;
 }
 
@@ -469,16 +486,14 @@ static int _skip_literal_nocase(struct http_request *r, const char *literal)
   return *literal == '\0';
 }
 
-static int is_http_space(char c)
+static int is_http_space(int c)
 {
   return c == ' ' || c == '\t';
 }
 
 static int _skip_optional_space(struct http_request *r)
 {
-  while (!_run_out(r) && is_http_space(*r->cursor))
-    ++r->cursor;
-  return 1;
+  return _skip_while(r, is_http_space);
 }
 
 static inline int _skip_space(struct http_request *r)
@@ -490,19 +505,19 @@ static inline int _skip_space(struct http_request *r)
 
 static size_t _skip_word_printable(struct http_request *r, struct substring *str, char until)
 {
+  const char *start = r->cursor;
+  if (str)
+    str->start = str->end = start;
   if (_run_out(r) || isspace(*r->cursor) || !isprint(*r->cursor) || *r->cursor == until)
     return 0;
-  const char *start = r->cursor;
   for (++r->cursor; !_run_out(r) && !isspace(*r->cursor) && isprint(*r->cursor) && *r->cursor != until; ++r->cursor)
     ;
   if (_run_out(r))
     return 0;
   assert(r->cursor > start);
   assert(isspace(*r->cursor) || *r->cursor == until);
-  if (str) {
-    str->start = start;
+  if (str)
     str->end = r->cursor;
-  }
   return r->cursor - start;
 }
 
@@ -585,6 +600,11 @@ static inline int _parse_http_size_t(struct http_request *r, http_size_t *szp)
 static inline int _parse_uint32(struct http_request *r, uint32_t *uint32p)
 {
   return !_run_out(r) && isdigit(*r->cursor) && str_to_uint32(r->cursor, 10, uint32p, (const char **)&r->cursor);
+}
+
+static inline int _parse_uint16(struct http_request *r, uint16_t *uint16p)
+{
+  return !_run_out(r) && isdigit(*r->cursor) && str_to_uint16(r->cursor, 10, uint16p, (const char **)&r->cursor);
 }
 
 static unsigned _parse_ranges(struct http_request *r, struct http_range *range, unsigned nrange)
@@ -733,6 +753,47 @@ static int _parse_authorization(struct http_request *r, struct http_client_autho
   }
   IDEBUGF(r->debug, "Malformed HTTP Authorization header: %s", alloca_toprint(50, r->parsed, r->end - r->parsed));
   return 0;
+}
+
+static int _parse_origin(struct http_request *r, struct http_origin *origin, size_t header_bytes)
+{
+  char *start = r->cursor;
+  char *end = start + header_bytes;
+  bzero(origin, sizeof *origin);
+  if (_skip_literal(r, "null") && (r->cursor == end || _skip_space(r))) {
+    origin->null = 1;
+    return 1;
+  }
+  r->cursor = start;
+  struct substring scheme;
+  struct substring hostname;
+  if (	 _skip_word_printable(r, &scheme, ':')
+      && _skip_literal(r, "://")
+      && _skip_word_printable(r, &hostname, '/')
+  ) {
+    const char *port = hostname.end - 1;
+    while (port > hostname.start && isdigit(*port))
+      --port;
+    if (port >= hostname.start && *port == ':' && port < hostname.end - 1) {
+      const char *e = NULL;
+      if (port && port + 1 < r->cursor && str_to_uint16(port + 1, 10, &origin->port, &e)) {
+	assert(e == r->cursor);
+	hostname.end = port;
+      }
+    }
+    assert(hostname.end > hostname.start);
+    strbuf sb = strbuf_local_buf(origin->scheme);
+    strbuf_ncat(sb, scheme.start, scheme.end - scheme.start);
+    strbuf sh = strbuf_local_buf(origin->hostname);
+    strbuf_ncat(sh, hostname.start, hostname.end - hostname.start);
+    if (strbuf_overrun(sb) || strbuf_overrun(sh)) {
+      IDEBUGF(r->debug, "Ignoring HTTP Origin with over-long scheme: %s", alloca_toprint(50, start, header_bytes));
+      r->cursor = end;
+      return 1;
+    }
+  }
+  _skip_literal(r, "/");
+  return 1;
 }
 
 static int _parse_quoted_rfc822_time(struct http_request *r, time_t *timep)
@@ -1056,27 +1117,28 @@ static int http_request_parse_header(struct http_request *r)
       return 0;
     }
     if (r->response.result_code)
-	return r->response.result_code;
+      return r->response.result_code;
     goto malformed;
   }
   _rewind(r);
   if (_skip_literal_nocase(r, "Origin:")) {
-    if (r->request_header.origin) {
+    if (r->request_header.origin.null || r->request_header.origin.scheme[0]) {
       IDEBUGF(r->debug, "Skipping duplicate HTTP header Origin: %s", alloca_toprint(50, sol, r->end - sol));
       r->cursor = nextline;
       _commit(r);
       return 0;
     }
     _skip_optional_space(r);
-    struct substring origin;
-    if (_skip_word_printable(r, &origin, ' ') 
+    if (   _parse_origin(r, &r->request_header.origin, eol - r->cursor)
 	&& _skip_optional_space(r)
-	&& r->cursor == eol) {
+	&& r->cursor == eol
+    ) {
       r->cursor = nextline;
       _commit(r);
-      _reserve_substring(r, &r->request_header.origin, origin);
       return 0;
     }
+    if (r->response.result_code)
+      return r->response.result_code;
     goto malformed;
   }
   _rewind(r);
@@ -1130,8 +1192,7 @@ static int http_request_start_body(struct http_request *r)
       if (   strcmp(r->request_header.content_type.type, "multipart") == 0
 	  && strcmp(r->request_header.content_type.subtype, "form-data") == 0
       ) {
-	if (   r->request_header.content_type.multipart_boundary[0] == '\0'
-	) {
+	if (r->request_header.content_type.multipart_boundary[0] == '\0') {
 	  IDEBUGF(r->debug, "Malformed HTTP %s request: Content-Type %s/%s missing boundary parameter",
 		r->verb, r->request_header.content_type.type, r->request_header.content_type.subtype);
 	  return 400;
@@ -1148,7 +1209,7 @@ static int http_request_start_body(struct http_request *r)
   else {
     IDEBUGF(r->debug, "Unsupported HTTP %s request", r->verb);
     r->parser = NULL;
-    return 501;
+    return 405; // Method Not Allowed
   }
   if (_run_out(r))
     return 100;
@@ -1559,7 +1620,7 @@ static void http_request_receive(struct http_request *r)
   // If there is no more buffer space, fail the request.
   if (room == 0) {
     IDEBUG(r->debug, "Buffer size reached, reporting overflow");
-    http_request_simple_response(r, 431, NULL);
+    http_request_simple_response(r, 431, NULL); // Request Header Fields Too Large
     RETURNVOID;
   }
   // Read up to the end of available buffer space or the end of content, whichever is first.  Read
@@ -1587,12 +1648,12 @@ static void http_request_receive(struct http_request *r)
   while (r->phase == RECEIVE) {
     int result;
     _rewind(r);
-    DEBUG_DUMP_PARSER(r);
     if (_end_of_content(r)) {
       if (r->handle_content_end)
 	result = r->handle_content_end(r);
       else {
-	IDEBUG(r->debug, "Internal failure parsing HTTP request: no end-of-content function set");
+	WHY("Internal failure parsing HTTP request: no end-of-content function set");
+	DEBUG_DUMP_PARSER(r);
 	result = 500;
       }
     } else {
@@ -1612,7 +1673,7 @@ static void http_request_receive(struct http_request *r)
       if (result == 100)
 	RETURNVOID; // needs more data; poll again
       if (result == 0 && r->parsed == oldparsed && r->parser == oldparser) {
-	IDEBUG(r->debug, "Internal failure parsing HTTP request: parser function did not advance");
+	WHY("Internal failure parsing HTTP request: parser function did not advance");
 	DEBUG_DUMP_PARSER(r);
 	result = 500;
       }
@@ -1621,13 +1682,15 @@ static void http_request_receive(struct http_request *r)
       assert(r->response.result_code == 0 || r->response.result_code == result);
       r->response.result_code = result;
     } else if (result) {
-      IDEBUGF(r->debug, "Internal failure parsing HTTP request: invalid result=%d", result);
+      WHYF("Internal failure parsing HTTP request: invalid result code %d", result);
+      DEBUG_DUMP_PARSER(r);
       r->response.result_code = 500;
     }
     if (r->response.result_code)
       break;
     if (result == -1) {
-      IDEBUG(r->debug, "Unrecoverable error parsing HTTP request, closing connection");
+      WHY("Unrecoverable error parsing HTTP request, closing connection");
+      DEBUG_DUMP_PARSER(r);
       http_request_finalise(r);
       RETURNVOID;
     }
@@ -1638,6 +1701,7 @@ static void http_request_receive(struct http_request *r)
   }
   if (r->response.result_code == 0) {
     WHY("No HTTP response set, using 500 Server Error");
+    DEBUG_DUMP_PARSER(r);
     r->response.result_code = 500;
   }
   http_request_start_response(r);
@@ -1896,15 +1960,20 @@ http_size_t http_range_bytes(const struct http_range *range, unsigned nranges)
   return bytes;
 }
 
-/* Return appropriate message for HTTP response codes, both known and unknown.
+/* Return standard "reason phrase" for HTTP response codes.
  */
-static const char *httpResultString(int response_code)
+static const char *http_reason_phrase(int response_code)
 {
   switch (response_code) {
   case 200: return "OK";
   case 201: return "Created";
+  case 202: return "Accepted";
   case 204: return "No Content";
   case 206: return "Partial Content";
+  case 300: return "Multiple Choices";
+  case 301: return "Moved Permanently";
+  case 302: return "Moved Temporarily";
+  case 304: return "Not Modified";
   case 400: return "Bad Request";
   case 401: return "Unauthorized";
   case 403: return "Forbidden";
@@ -1916,23 +1985,26 @@ static const char *httpResultString(int response_code)
   case 414: return "Request-URI Too Long";
   case 415: return "Unsupported Media Type";
   case 416: return "Requested Range Not Satisfiable";
+  case 419: return "Authentication Timeout";
   case 422: return "Unprocessable Entity";
   case 423: return "Locked";
   case 429: return "Too Many Requests";
   case 431: return "Request Header Fields Too Large";
   case 500: return "Internal Server Error";
   case 501: return "Not Implemented";
-  default:  return (response_code <= 4) ? "Unknown status code" : "A suffusion of yellow";
+  case 502: return "Bad Gateway";
+  case 503: return "Service Unavailable";
+  default:  return (response_code < 400) ? "Unknown reason" : "A suffusion of yellow";
   }
 }
 
-static strbuf strbuf_status_body(strbuf sb, struct http_response *hr, const char *message)
+static strbuf strbuf_status_body(strbuf sb, struct http_response *hr, const char *reason_phrase)
 {
   if (   hr->header.content_type == CONTENT_TYPE_TEXT
       || (hr->header.content_type && strcmp(hr->header.content_type, CONTENT_TYPE_TEXT) == 0)
   ) {
     hr->header.content_type = CONTENT_TYPE_TEXT;
-    strbuf_sprintf(sb, "%03u %s", hr->result_code, message);
+    strbuf_sprintf(sb, "%03u %s", hr->result_code, reason_phrase);
     unsigned i;
     for (i = 0; i < NELS(hr->result_extra); ++i)
       if (hr->result_extra[i].label) {
@@ -1948,7 +2020,7 @@ static strbuf strbuf_status_body(strbuf sb, struct http_response *hr, const char
   ) {
     hr->header.content_type = CONTENT_TYPE_JSON;
     strbuf_sprintf(sb, "{\n \"http_status_code\": %u,\n \"http_status_message\": ", hr->result_code);
-    strbuf_json_string(sb, message);
+    strbuf_json_string(sb, reason_phrase);
     unsigned i;
     for (i = 0; i < NELS(hr->result_extra); ++i)
       if (hr->result_extra[i].label) {
@@ -1961,7 +2033,7 @@ static strbuf strbuf_status_body(strbuf sb, struct http_response *hr, const char
   }
   else {
     hr->header.content_type = CONTENT_TYPE_HTML;
-    strbuf_sprintf(sb, "<html>\n<h1>%03u %s</h1>", hr->result_code, message);
+    strbuf_sprintf(sb, "<html>\n<h1>%03u %s</h1>", hr->result_code, reason_phrase);
     strbuf_puts(sb, "\n<dl>");
     unsigned i;
     for (i = 0; i < NELS(hr->result_extra); ++i)
@@ -1991,7 +2063,7 @@ static int _render_response(struct http_request *r)
   // Status code 401 must be accompanied by a WWW-Authenticate header.
   if (hr.result_code == 401)
     assert(hr.header.www_authenticate.scheme != NOAUTH);
-  const char *result_string = httpResultString(hr.result_code);
+  const char *reason_phrase = http_reason_phrase(hr.result_code);
   strbuf sb = strbuf_local(r->response_buffer, r->response_buffer_size);
   // Cannot specify both static (pre-rendered) content AND generated content.
   assert(!(hr.content && hr.content_generator));
@@ -2024,14 +2096,14 @@ static int _render_response(struct http_request *r)
 	hr.result_code = 206; // Partial Content
     }
   } else {
-    // If no content is supplied at all, then render a standard, short body based solely on result
-    // code, consistent with the response Content-Type if already set (HTML if not set).
+    // If no content has been supplied at all, then render a standard, short body based solely on
+    // result code, consistent with the response Content-Type if already set (HTML if not set).
     assert(hr.header.content_length == CONTENT_LENGTH_UNKNOWN);
     assert(hr.header.resource_length == CONTENT_LENGTH_UNKNOWN);
     assert(hr.header.content_range_start == 0);
     assert(hr.result_code != 206);
     strbuf cb;
-    STRBUF_ALLOCA_FIT(cb, 40 + strlen(result_string), (strbuf_status_body(cb, &hr, result_string)));
+    STRBUF_ALLOCA_FIT(cb, 40 + strlen(reason_phrase), (strbuf_status_body(cb, &hr, reason_phrase)));
     hr.content = strbuf_str(cb);
     hr.header.content_length = strbuf_len(cb);
     hr.header.resource_length = hr.header.content_length;
@@ -2039,7 +2111,7 @@ static int _render_response(struct http_request *r)
   }
   assert(hr.header.content_type != NULL);
   assert(hr.header.content_type[0]);
-  strbuf_sprintf(sb, "HTTP/1.0 %03u %s\r\n", hr.result_code, result_string);
+  strbuf_sprintf(sb, "HTTP/1.0 %03u %s\r\n", hr.result_code, reason_phrase);
   strbuf_sprintf(sb, "Content-Type: %s", hr.header.content_type);
   if (hr.header.boundary) {
     strbuf_puts(sb, "; boundary=");
@@ -2065,14 +2137,24 @@ static int _render_response(struct http_request *r)
   }
   if (hr.header.content_length != CONTENT_LENGTH_UNKNOWN)
     strbuf_sprintf(sb, "Content-Length: %"PRIhttp_size_t"\r\n", hr.header.content_length);
-  
-  if (strlen(hr.header.allow_origin) > 0)
-    strbuf_sprintf(sb, "Access-Control-Allow-Origin: %s\r\n", hr.header.allow_origin);
+  if (hr.header.allow_origin.null || hr.header.allow_origin.scheme[0]) {
+    strbuf_puts(sb, "Access-Control-Allow-Origin: ");
+    if (hr.header.allow_origin.null) {
+      strbuf_puts(sb, "null");
+    } else {
+      assert(hr.header.allow_origin.hostname[0]);
+      strbuf_puts(sb, hr.header.allow_origin.scheme);
+      strbuf_puts(sb, "://");
+      strbuf_puts(sb, hr.header.allow_origin.hostname);
+      if (hr.header.allow_origin.port)
+	strbuf_sprintf(sb, ":%u", hr.header.allow_origin.port);
+    }
+    strbuf_puts(sb, "\r\n");
+  }
   if (hr.header.allow_methods)
     strbuf_sprintf(sb, "Access-Control-Allow-Methods: %s\r\n", hr.header.allow_methods);
   if (hr.header.allow_headers)
     strbuf_sprintf(sb, "Access-Control-Allow-Headers: %s\r\n", hr.header.allow_headers);
-  
   const char *scheme = NULL;
   switch (hr.header.www_authenticate.scheme) {
     case NOAUTH: break;
@@ -2179,7 +2261,7 @@ static void http_request_start_response(struct http_request *r)
   // then just close the connection.
   http_request_render_response(r);
   if (r->response_buffer == NULL) {
-    WARN("Cannot render HTTP response, sending 500 Server Error instead");
+    WHY("Cannot render HTTP response, sending 500 Server Error instead");
     r->response.result_code = 500;
     r->response.content = NULL;
     r->response.content_generator = NULL;
@@ -2231,21 +2313,21 @@ void http_request_response_generated(struct http_request *r, int result, const c
 }
 
 /* Start sending a short response back to the client.  The result code must be either a success
- * (2xx), redirection (3xx) or client error (4xx) or server error (5xx) code.  The 'message'
- * argument may be a bare message which is enclosed in an HTML envelope to form the response
- * content, so it may contain HTML markup.  If the 'message' argument is NULL, then the response
- * content is generated automatically from the result code.
+ * (2xx), redirection (3xx) or client error (4xx) or server error (5xx) code.  The 'reason_phrase'
+ * argument can be text which will be enclosed in either a JSON, HTML or plain text envelope to form
+ * the response content, so it should contain any special markup (eg, HTML).  If the 'reason_phrase'
+ * argument is NULL, then the reason phrase will be generated automatically from the result code.
  *
  * @author Andrew Bettison <andrew@servalproject.com>
  */
-void http_request_simple_response(struct http_request *r, uint16_t result, const char *message)
+void http_request_simple_response(struct http_request *r, uint16_t result, const char *reason_phrase)
 {
   assert(r->phase == RECEIVE);
   r->response.result_code = result;
   r->response.header.content_range_start = 0;
   strbuf h = NULL;
-  if (message)
-    STRBUF_ALLOCA_FIT(h, 40 + strlen(message), (strbuf_status_body(h, &r->response, message)));
+  if (reason_phrase)
+    STRBUF_ALLOCA_FIT(h, 40 + strlen(reason_phrase), (strbuf_status_body(h, &r->response, reason_phrase)));
   if (h) {
     r->response.header.resource_length = r->response.header.content_length = strbuf_len(h);
     r->response.content = strbuf_str(h);

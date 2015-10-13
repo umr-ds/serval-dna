@@ -598,7 +598,7 @@ dna_helper_enqueue(struct subscriber *source, mdp_port_t source_port, const char
     return 0;
   }
   char buffer[sizeof request_buffer];
-  strbuf b = strbuf_local(request_bufptr == request_buffer ? buffer : request_buffer, sizeof buffer);
+  strbuf b = request_bufptr == request_buffer ? strbuf_local_buf(buffer) : strbuf_local_buf(request_buffer);
   strbuf_tohex(b, SID_STRLEN, source->sid.binary);
   strbuf_putc(b, '|');
   strbuf_puts(b, did);
@@ -617,8 +617,7 @@ dna_helper_enqueue(struct subscriber *source, mdp_port_t source_port, const char
     request_bufend = request_buffer + strbuf_len(b);
     request_source = source;
     request_port = source_port;
-    strncpy(request_did, did, sizeof request_did);
-    request_did[sizeof request_did - 1] = '\0';
+    buf_strncpy_nul(request_did, did);
   }
   if (dna_helper_started) {
     sched_requests.poll.fd = dna_helper_stdin;
