@@ -32,6 +32,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "server.h"
 
 static int rhizome_delete_manifest_retry(sqlite_retry_state *retry, const rhizome_bid_t *bidp);
+static int rhizome_change_active_retry(sqlite_retry_state *retry, const rhizome_bid_t *bidp, int state);
 
 static int create_rhizome_store_dir()
 {
@@ -187,7 +188,7 @@ int rhizome_opendb()
   }
 
   IN();
-  
+
   if (create_rhizome_store_dir() == -1)
     RETURN(-1);
   char dbpath[1024];
@@ -203,14 +204,14 @@ int rhizome_opendb()
     sqlite3_temp_directory = sqlite3_mprintf("%s", dbpath);
   }
   sqlite3_config(SQLITE_CONFIG_LOG,sqlite_log,NULL);
-  
+
   if (!FORMF_RHIZOME_STORE_PATH(dbpath, "rhizome.db"))
     RETURN(-1);
-  
+
   struct file_meta meta;
   if (get_file_meta(dbpath, &meta) == -1)
     RETURN(-1);
-  
+
   if (sqlite3_open(dbpath,&rhizome_db)){
     RETURN(WHYF("SQLite could not open database %s: %s", dbpath, sqlite3_errmsg(rhizome_db)));
   }
@@ -223,17 +224,17 @@ int rhizome_opendb()
 
   /* Read Rhizome configuration */
   DEBUGF(rhizome, "Rhizome will use %"PRIu64"B of storage for its database.", (uint64_t) config.rhizome.database_size);
-  
+
   sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
 
   uint64_t version;
   if (sqlite_exec_uint64_retry(&retry, &version, "PRAGMA user_version;", END) == -1)
     RETURN(-1);
-  
+
   if (version<1){
     /* Create tables as required */
     sqlite_exec_void_loglevel(loglevel, "PRAGMA auto_vacuum=2;", END);
-    if (	sqlite_exec_void_retry(&retry, 
+    if (	sqlite_exec_void_retry(&retry,
 		  "CREATE TABLE IF NOT EXISTS MANIFESTS("
 		      "id text not null primary key, "
 		      "version integer, "
@@ -250,7 +251,7 @@ int rhizome_opendb()
 		      "tail integer, "
               "active integer"
 		  ");", END) == -1
-      ||	sqlite_exec_void_retry(&retry, 
+      ||	sqlite_exec_void_retry(&retry,
 		  "CREATE TABLE IF NOT EXISTS FILES("
 		      "id text not null primary key, "
 		      "length integer, "
@@ -258,12 +259,12 @@ int rhizome_opendb()
 		      "inserttime integer, "
 		      "last_verified integer"
 		  ");", END) == -1
-      ||	sqlite_exec_void_retry(&retry, 
+      ||	sqlite_exec_void_retry(&retry,
 		  "CREATE TABLE IF NOT EXISTS FILEBLOBS("
 		      "id text not null primary key, "
 		      "data blob"
 		  ");", END) == -1
-      ||	sqlite_exec_void_retry(&retry, 
+      ||	sqlite_exec_void_retry(&retry,
 		  "CREATE TABLE IF NOT EXISTS IDENTITY("
 		      "uuid text not null"
 		  "); ", END) == -1
@@ -311,10 +312,10 @@ int rhizome_opendb()
     }
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "PRAGMA user_version=7;", END);
   }
-  
+
   // TODO recreate tables with collate nocase on all hex columns
 
-  /* Future schema updates should be performed here. 
+  /* Future schema updates should be performed here.
    The above schema can be assumed to exist, no matter which version we upgraded from.
    All changes should attempt to preserve all existing interesting data */
 
@@ -352,7 +353,7 @@ int rhizome_close_db()
   IN();
   if (rhizome_db) {
     rhizome_cache_close();
-    
+
     if (!sqlite3_get_autocommit(rhizome_db)){
       WHY("Uncommitted transaction!");
       sqlite_exec_void("ROLLBACK;", END);
@@ -429,7 +430,7 @@ int _sqlite_retry(struct __sourceloc __whence, sqlite_retry_state *retry, const 
   if (retry->start == -1)
     retry->start = now;
   retry->elapsed = now - retry->start;
-  
+
   INFOF("%s on try %u after %.3f seconds (limit %.3f): %s",
       sqlite3_errmsg(rhizome_db),
       retry->busytries,
@@ -437,7 +438,7 @@ int _sqlite_retry(struct __sourceloc __whence, sqlite_retry_state *retry, const 
       (retry->limit) / 1e3,
       action
     );
-  
+
   if (retry->elapsed >= retry->limit) {
     // reset ready for next query
     retry->busytries = 0;
@@ -445,7 +446,7 @@ int _sqlite_retry(struct __sourceloc __whence, sqlite_retry_state *retry, const 
       retry->start = -1;
     return 0; // tell caller to stop trying
   }
-  
+
   if (retry->sleep)
     sleep_ms(retry->sleep);
   return 1; // tell caller to try again
@@ -1176,7 +1177,7 @@ int rhizome_database_filehash_from_id(const rhizome_bid_t *bidp, uint64_t versio
   if (r != 1)
     RETURN(1);
   if (strbuf_overrun(hash_sb) || str_to_rhizome_filehash_t(hashp, strbuf_str(hash_sb)) == -1)
-    RETURN(WHYF("malformed file hash (%s) for bid=%s version=%"PRIu64, 
+    RETURN(WHYF("malformed file hash (%s) for bid=%s version=%"PRIu64,
       strbuf_str(hash_sb), alloca_tohex_rhizome_bid_t(*bidp), version));
   RETURN(0);
   OUT();
@@ -1200,7 +1201,7 @@ int rhizome_cleanup(struct rhizome_cleanup_report *report)
 
   // make sure we are under our database size limit
   rhizome_store_cleanup(report);
-  
+
   /* For testing, it helps to speed up the cleanup process. */
   const char *orphan_payload_persist_ms = getenv("SERVALD_ORPHAN_PAYLOAD_PERSIST_MS");
   time_ms_t now = gettime_ms();
@@ -1230,7 +1231,7 @@ int rhizome_cleanup(struct rhizome_cleanup_report *report)
   // TODO Iterate through all files in RHIZOME_BLOB_SUBDIR and delete any which are no longer
   // referenced or are stale.  This could take a long time, so for scalability should be done
   // in an incremental background task.  See GitHub issue #50.
- 
+
   // Remove payload blobs that are no longer referenced.
   int ret = sqlite_exec_void_retry(&retry,
       "DELETE FROM FILEBLOBS WHERE NOT EXISTS( SELECT 1 FROM FILES WHERE FILES.id = FILEBLOBS.id );",
@@ -1243,9 +1244,9 @@ int rhizome_cleanup(struct rhizome_cleanup_report *report)
       "DELETE FROM MANIFESTS WHERE filesize > 0 AND NOT EXISTS( SELECT 1 FROM FILES WHERE MANIFESTS.filehash = FILES.id);", END);
   if (report && ret > 0)
     report->deleted_orphan_manifests += ret;
-  
+
   rhizome_vacuum_db(&retry);
-  
+
   if (report)
     DEBUGF(rhizome, "report deleted_stale_incoming_files=%u deleted_orphan_files=%u deleted_orphan_fileblobs=%u deleted_orphan_manifests=%u",
 	   report->deleted_stale_incoming_files,
@@ -1678,7 +1679,7 @@ static enum rhizome_bundle_status unpack_manifest_row(sqlite_retry_state *retry,
     return RHIZOME_BUNDLE_STATUS_ERROR;
   if (r!=SQLITE_ROW)
     return RHIZOME_BUNDLE_STATUS_NEW;
-  
+
   const char *q_id = (const char *) sqlite3_column_text(statement, 0);
   const char *q_blob = (char *) sqlite3_column_blob(statement, 1);
   uint64_t q_version = sqlite3_column_int64(statement, 2);
@@ -1844,4 +1845,26 @@ int rhizome_is_bar_interesting(const rhizome_bar_t *bar)
 int rhizome_is_manifest_interesting(rhizome_manifest *m)
 {
   return is_interesting(alloca_tohex_rhizome_bid_t(m->cryptoSignPublic), m->version);
+}
+
+int rhizome_change_active(const rhizome_bid_t *bidp, int state)
+{
+  sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
+  return rhizome_change_active_retry(&retry, bidp, state);
+}
+
+static int rhizome_change_active_retry(sqlite_retry_state *retry, const rhizome_bid_t *bidp, int state)
+{
+  sqlite3_stmt *statement = sqlite_prepare_bind(retry,
+    "UPDATE MANIFESTS SET active = ? WHERE id = ?",
+    INT, state,
+    RHIZOME_BID_T, bidp,
+    END);
+
+  if (!statement)
+    return -1;
+
+  if (sqlite_exec_retry(retry, statement) == -1)
+    return -1;
+  return sqlite3_changes(rhizome_db) ? 0 : 1;
 }

@@ -1,17 +1,17 @@
 /*
  Serval DNA - Rhizome command line interface
  Copyright (C) 2014 Serval Project Inc.
- 
+
  This program is free software; you can redistribute it and/or
  modify it under the terms of the GNU General Public License
  as published by the Free Software Foundation; either version 2
  of the License, or (at your option) any later version.
- 
+
  This program is distributed in the hope that it will be useful,
  but WITHOUT ANY WARRANTY; without even the implied warranty of
  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  GNU General Public License for more details.
- 
+
  You should have received a copy of the GNU General Public License
  along with this program; if not, write to the Free Software
  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
@@ -126,7 +126,7 @@ static int app_rhizome_add_file(const struct cli_parsed *parsed, struct cli_cont
     authorSidHex = NULL;
   else if (str_to_sid_t(&authorSid, authorSidHex) == -1)
     return WHYF("invalid author_sid: %s", authorSidHex);
-  
+
   rhizome_bid_t bid;
   if (!bundleIdHex || !*bundleIdHex)
     bundleIdHex = NULL;
@@ -138,7 +138,7 @@ static int app_rhizome_add_file(const struct cli_parsed *parsed, struct cli_cont
     bsktext = NULL;
   else if (str_to_rhizome_bsk_t(&bsk, bsktext) == -1)
     return WHYF("invalid BSK: \"%s\"", bsktext);
-  
+
   unsigned nfields = (parsed->varargi == -1) ? 0 : parsed->argc - (unsigned)parsed->varargi;
   struct rhizome_manifest_field_assignment fields[nfields];
   if (nfields) {
@@ -173,15 +173,15 @@ static int app_rhizome_add_file(const struct cli_parsed *parsed, struct cli_cont
 
   if (create_serval_instance_dir() == -1)
     return -1;
-  
+
   if (!(keyring = keyring_open_instance_cli(parsed)))
     return -1;
-  
+
   int ret = -1;
   rhizome_manifest *m = NULL;
   if (rhizome_opendb() == -1)
     goto finish;
-  
+
   /* Create a manifest in memory that to describe the added file.  Initially the manifest is blank.
    * If a manifest file is supplied, then read and parse it, barfing if it contains any duplicate
    * fields or invalid values.  If it successfully parses, then overwrite it with any command-line
@@ -407,6 +407,34 @@ static int app_rhizome_append_manifest(const struct cli_parsed *parsed, struct c
   return ret;
 }
 
+DEFINE_CMD(app_rhizome_active, 0, "Set the active flag of a file to true or false", "rhizome", "set", "active|inactive", "<manifestid>");
+static int app_rhizome_active(const struct cli_parsed *parsed, struct cli_context *UNUSED(context))
+{
+  DEBUG_cli_parsed(verbose, parsed);
+  const char *manifestid;
+  if (cli_arg(parsed, "manifestid", &manifestid, cli_bid, NULL) == -1)
+    return -1;
+  /* Ensure the Rhizome database exists and is open */
+  if (create_serval_instance_dir() == -1)
+    return -1;
+  if (rhizome_opendb() == -1)
+    return -1;
+
+  int ret=0;
+  if (!manifestid){
+    return WHY("missing <manifestid> argument");
+  }
+  rhizome_bid_t bid;
+  if (str_to_rhizome_bid_t(&bid, manifestid) == -1){
+    return WHY("Invalid manifest ID");
+  }
+  if (cli_arg(parsed, "active", NULL, NULL, NULL) == 0)
+    ret = rhizome_change_active(&bid, 1);
+  else if (cli_arg(parsed, "inactive", NULL, NULL, NULL) == 0)
+    ret = rhizome_change_active(&bid, 0);
+  return ret;
+}
+
 DEFINE_CMD(app_rhizome_delete, 0,
   "Remove the manifest, or payload, or both for the given Bundle ID from the Rhizome store",
   "rhizome","delete","manifest|payload|bundle","<manifestid>");
@@ -478,13 +506,13 @@ static int app_rhizome_clean(const struct cli_parsed *parsed, struct cli_context
 {
   DEBUG_cli_parsed(verbose, parsed);
   int verify = cli_arg(parsed, "verify", NULL, NULL, NULL) == 0;
-  
+
   /* Ensure the Rhizome database exists and is open */
   if (create_serval_instance_dir() == -1)
     return -1;
   if (rhizome_opendb() == -1)
     return -1;
-  
+
   if (verify)
     verify_bundles();
   struct rhizome_cleanup_report report;
@@ -526,31 +554,31 @@ static int app_rhizome_extract(const struct cli_parsed *parsed, struct cli_conte
       || cli_arg(parsed, "filepath", &filepath, NULL, "") == -1
       || cli_arg(parsed, "bsk", &bsktext, cli_optional_bundle_secret_key, NULL) == -1)
     return -1;
-  
+
   int extract = strcasecmp(parsed->args[1], "extract")==0;
-  
+
   /* Ensure the Rhizome database exists and is open */
   if (create_serval_instance_dir() == -1)
     return -1;
   if (rhizome_opendb() == -1)
     return -1;
-  
+
   if (!(keyring = keyring_open_instance_cli(parsed)))
     return -1;
-  
+
   rhizome_manifest *m = NULL;
   int ret=0;
-  
+
   rhizome_bid_t bid;
   if (str_to_rhizome_bid_t(&bid, manifestid) == -1) {
     ret = WHY("Invalid manifest ID");
     goto finish;
   }
-  
+
   // treat empty string the same as null
   if (bsktext && !*bsktext)
     bsktext = NULL;
-  
+
   rhizome_bk_t bsk;
   if (bsktext && str_to_rhizome_bsk_t(&bsk, bsktext) == -1) {
     ret = WHYF("invalid bsk: \"%s\"", bsktext);
@@ -561,13 +589,13 @@ static int app_rhizome_extract(const struct cli_parsed *parsed, struct cli_conte
     ret = WHY("Out of manifests");
     goto finish;
   }
-  
+
   switch(rhizome_retrieve_manifest(&bid, m)){
     case RHIZOME_BUNDLE_STATUS_NEW: ret=1; break;
     case RHIZOME_BUNDLE_STATUS_SAME: ret=0; break;
     default: ret=-1; break;
   }
-  
+
   if (ret==0){
     assert(m->finalised);
     if (bsktext)
@@ -576,7 +604,7 @@ static int app_rhizome_extract(const struct cli_parsed *parsed, struct cli_conte
     assert(m->authorship != AUTHOR_LOCAL);
     cli_put_manifest(context, m);
   }
-  
+
   enum rhizome_payload_status pstatus = RHIZOME_PAYLOAD_STATUS_EMPTY;
   if (ret==0 && m->filesize != 0 && filepath && *filepath){
     if (extract){
@@ -592,7 +620,7 @@ static int app_rhizome_extract(const struct cli_parsed *parsed, struct cli_conte
 	WHYF("rhizome_dump_file() returned %d", pstatus);
     }
   }
-  
+
   if (ret==0 && manifestpath && *manifestpath){
     if (strcmp(manifestpath, "-") == 0) {
       // always extract a manifest to stdout, even if writing the file itself failed.
@@ -776,4 +804,3 @@ static int app_rhizome_list(const struct cli_parsed *parsed, struct cli_context 
   cli_row_count(context, rowcount);
   return 0;
 }
-

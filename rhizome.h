@@ -2,17 +2,17 @@
 Serval DNA Rhizome file distribution
 Copyright (C) 2010-2014 Serval Project Inc.
 Copyright (C) 2010 Paul Gardner-Stephen
- 
+
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
 as published by the Free Software Foundation; either version 2
 of the License, or (at your option) any later version.
- 
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
- 
+
 You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
@@ -166,7 +166,7 @@ typedef struct rhizome_manifest
   /* Local authorship.  Useful for dividing bundle lists between "sent" and
    * "inbox" views.
    */
-  enum rhizome_bundle_authorship { 
+  enum rhizome_bundle_authorship {
     ANONYMOUS = 0, // 'author' element is not valid
     AUTHOR_NOT_CHECKED, // 'author' element is valid but not checked
     AUTHENTICATION_ERROR, // author check failed, don't try again
@@ -228,8 +228,8 @@ typedef struct rhizome_manifest
    * have an ANY author (all zeros).
    */
   sid_t author;
-    
-  
+
+
   /* used to indicate, if the external tool accepted the file for propagation
   */
   uint64_t active;
@@ -629,6 +629,7 @@ int rhizome_delete_manifest(const rhizome_bid_t *bidp);
 int rhizome_delete_payload(const rhizome_bid_t *bidp);
 int rhizome_delete_file_id(const char *id);
 int rhizome_delete_file(const rhizome_filehash_t *hashp);
+int rhizome_change_active(const rhizome_bid_t *bidp, int state);
 
 #define RHIZOME_DONTVERIFY 0
 #define RHIZOME_VERIFY 1
@@ -697,7 +698,7 @@ void rhizome_list_commit(struct rhizome_list_cursor *);
 void rhizome_list_release(struct rhizome_list_cursor *);
 
 /* one manifest is required per candidate, plus a few spare.
-   so MAX_RHIZOME_MANIFESTS must be > MAX_CANDIDATES. 
+   so MAX_RHIZOME_MANIFESTS must be > MAX_CANDIDATES.
 */
 #define MAX_RHIZOME_MANIFESTS 40
 #define MAX_CANDIDATES 32
@@ -727,11 +728,11 @@ struct rhizome_write
   uint64_t file_length;
   struct rhizome_write_buffer *buffer_list;
   size_t buffer_size;
-  
+
   int crypt;
   unsigned char key[RHIZOME_CRYPT_KEY_BYTES];
   unsigned char nonce[crypto_stream_xsalsa20_NONCEBYTES];
-  
+
   SHA512_CTX sha512_context;
   uint64_t blob_rowid;
   int blob_fd;
@@ -747,24 +748,24 @@ struct rhizome_read_buffer{
 struct rhizome_read
 {
   rhizome_filehash_t id;
-  
+
   int crypt;
   unsigned char key[RHIZOME_CRYPT_KEY_BYTES];
   unsigned char nonce[crypto_stream_xsalsa20_NONCEBYTES];
-  
+
   uint64_t hash_offset;
   SHA512_CTX sha512_context;
   signed char verified;
-  
+
   uint64_t blob_rowid;
   int blob_fd;
-  
+
   uint64_t tail;
   uint64_t offset;
   uint64_t length;
 };
 
-int rhizome_received_content(const unsigned char *bidprefix,uint64_t version, 
+int rhizome_received_content(const unsigned char *bidprefix,uint64_t version,
 			     uint64_t offset, size_t count,unsigned char *bytes);
 
 int is_rhizome_enabled();
@@ -823,7 +824,7 @@ typedef struct rhizome_direct_sync_request {
 
   /* The dispatch function will be called each time a sync request can
      be sent off, i.e., one cursor->buffer full of data.
-     Will differ based on underlying transport. HTTP is the initial 
+     Will differ based on underlying transport. HTTP is the initial
      supported transport, but deLorme inReach will likely follow soon after.
   */
   void (*dispatch_function)(struct rhizome_direct_sync_request *);
@@ -832,9 +833,9 @@ typedef struct rhizome_direct_sync_request {
   void *transport_specific_state;
 
   /* Statistics.
-     Each sync will consist of one or more "fills" of the cursor buffer, which 
+     Each sync will consist of one or more "fills" of the cursor buffer, which
      will then be dispatched by the transport-specific dispatch function.
-     Each of those dispatches may then result in zero or 
+     Each of those dispatches may then result in zero or
    */
   int syncs_started;
   int syncs_completed;
@@ -854,7 +855,7 @@ rhizome_direct_sync_request
 *rhizome_direct_new_sync_request(
 				 void (*transport_specific_dispatch_function)
 				 (struct rhizome_direct_sync_request *),
-				 size_t buffer_size, int interval, int mode, 
+				 size_t buffer_size, int interval, int mode,
 				 void *transport_specific_state);
 int rhizome_direct_continue_sync_request(rhizome_direct_sync_request *r);
 int rhizome_direct_conclude_sync_request(rhizome_direct_sync_request *r);
@@ -863,7 +864,7 @@ rhizome_direct_bundle_cursor *rhizome_direct_get_fill_response
 
 typedef struct rhizome_direct_transport_state_http {
   int port;
-  char host[1024];  
+  char host[1024];
 } rhizome_direct_transport_state_http;
 
 void rhizome_direct_http_dispatch(rhizome_direct_sync_request *);
@@ -886,7 +887,7 @@ enum rhizome_start_fetch_result {
 };
 
 enum rhizome_start_fetch_result
-rhizome_fetch_request_manifest_by_prefix(const struct socket_address *addr, 
+rhizome_fetch_request_manifest_by_prefix(const struct socket_address *addr,
 					 const struct subscriber *peer,
 					 const unsigned char *prefix, size_t prefix_length);
 int rhizome_any_fetch_active();
@@ -916,7 +917,7 @@ enum rhizome_payload_status rhizome_append_journal_buffer(rhizome_manifest *m, u
 enum rhizome_payload_status rhizome_append_journal_file(rhizome_manifest *m, uint64_t advance_by, const char *filename);
 enum rhizome_payload_status rhizome_journal_pipe(struct rhizome_write *write, const rhizome_filehash_t *hashp, uint64_t start_offset, uint64_t length);
 
-int rhizome_crypt_xor_block(unsigned char *buffer, size_t buffer_size, uint64_t stream_offset, 
+int rhizome_crypt_xor_block(unsigned char *buffer, size_t buffer_size, uint64_t stream_offset,
 			    const unsigned char *key, const unsigned char *nonce);
 enum rhizome_payload_status rhizome_open_read(struct rhizome_read *read, const rhizome_filehash_t *hashp);
 ssize_t rhizome_read(struct rhizome_read *read, unsigned char *buffer, size_t buffer_length);
@@ -925,7 +926,7 @@ void rhizome_read_close(struct rhizome_read *read);
 enum rhizome_payload_status rhizome_open_decrypt_read(rhizome_manifest *m, struct rhizome_read *read_state);
 enum rhizome_payload_status rhizome_extract_file(rhizome_manifest *m, const char *filepath);
 enum rhizome_payload_status rhizome_dump_file(const rhizome_filehash_t *hashp, const char *filepath, uint64_t *lengthp);
-ssize_t rhizome_read_cached(const rhizome_bid_t *bid, uint64_t version, time_ms_t timeout, 
+ssize_t rhizome_read_cached(const rhizome_bid_t *bid, uint64_t version, time_ms_t timeout,
                             uint64_t fileOffset, unsigned char *buffer, size_t length);
 int rhizome_cache_close();
 
