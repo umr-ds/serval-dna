@@ -629,7 +629,7 @@ int rhizome_delete_manifest(const rhizome_bid_t *bidp);
 int rhizome_delete_payload(const rhizome_bid_t *bidp);
 int rhizome_delete_file_id(const char *id);
 int rhizome_delete_file(const rhizome_filehash_t *hashp);
-int rhizome_change_active(const rhizome_bid_t *bidp, int state);
+int rhizome_change_active(const rhizome_filehash_t *hash, int state);
 
 #define RHIZOME_DONTVERIFY 0
 #define RHIZOME_VERIFY 1

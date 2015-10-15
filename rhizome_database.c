@@ -32,7 +32,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "server.h"
 
 static int rhizome_delete_manifest_retry(sqlite_retry_state *retry, const rhizome_bid_t *bidp);
-static int rhizome_change_active_retry(sqlite_retry_state *retry, const rhizome_bid_t *bidp, int state);
 
 static int create_rhizome_store_dir()
 {
@@ -1847,24 +1846,19 @@ int rhizome_is_manifest_interesting(rhizome_manifest *m)
   return is_interesting(alloca_tohex_rhizome_bid_t(m->cryptoSignPublic), m->version);
 }
 
-int rhizome_change_active(const rhizome_bid_t *bidp, int state)
+int rhizome_change_active(const rhizome_filehash_t *hash, int state)
 {
   sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
-  return rhizome_change_active_retry(&retry, bidp, state);
-}
-
-static int rhizome_change_active_retry(sqlite_retry_state *retry, const rhizome_bid_t *bidp, int state)
-{
-  sqlite3_stmt *statement = sqlite_prepare_bind(retry,
-    "UPDATE MANIFESTS SET active = ? WHERE id = ?",
+  sqlite3_stmt *statement = sqlite_prepare_bind(&retry,
+    "UPDATE MANIFESTS SET active = ? WHERE filehash = ?",
     INT, state,
-    RHIZOME_BID_T, bidp,
+    RHIZOME_FILEHASH_T, hash,
     END);
 
   if (!statement)
     return -1;
 
-  if (sqlite_exec_retry(retry, statement) == -1)
+  if (sqlite_exec_retry(&retry, statement) == -1)
     return -1;
   return sqlite3_changes(rhizome_db) ? 0 : 1;
 }

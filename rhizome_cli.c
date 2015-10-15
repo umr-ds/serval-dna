@@ -407,12 +407,12 @@ static int app_rhizome_append_manifest(const struct cli_parsed *parsed, struct c
   return ret;
 }
 
-DEFINE_CMD(app_rhizome_active, 0, "Set the active flag of a file to true or false", "rhizome", "set", "active|inactive", "<manifestid>");
+DEFINE_CMD(app_rhizome_active, 0, "Set the active flag of a file to true or false", "rhizome", "set", "active|inactive", "<fileid>");
 static int app_rhizome_active(const struct cli_parsed *parsed, struct cli_context *UNUSED(context))
 {
   DEBUG_cli_parsed(verbose, parsed);
-  const char *manifestid;
-  if (cli_arg(parsed, "manifestid", &manifestid, cli_bid, NULL) == -1)
+  const char *fileid;
+  if (cli_arg(parsed, "fileid", &fileid, cli_fileid, NULL) == -1)
     return -1;
   /* Ensure the Rhizome database exists and is open */
   if (create_serval_instance_dir() == -1)
@@ -421,17 +421,17 @@ static int app_rhizome_active(const struct cli_parsed *parsed, struct cli_contex
     return -1;
 
   int ret=0;
-  if (!manifestid){
-    return WHY("missing <manifestid> argument");
+  if (!fileid){
+    return WHY("missing <fileid> argument");
   }
-  rhizome_bid_t bid;
-  if (str_to_rhizome_bid_t(&bid, manifestid) == -1){
-    return WHY("Invalid manifest ID");
+  rhizome_filehash_t hash;
+  if (str_to_rhizome_filehash_t(&hash, fileid) == -1){
+    return WHY("Invalid fileid ID");
   }
   if (cli_arg(parsed, "active", NULL, NULL, NULL) == 0)
-    ret = rhizome_change_active(&bid, 1);
+    ret = rhizome_change_active(&hash, 1);
   else if (cli_arg(parsed, "inactive", NULL, NULL, NULL) == 0)
-    ret = rhizome_change_active(&bid, 0);
+    ret = rhizome_change_active(&hash, 0);
   return ret;
 }
 
