@@ -637,12 +637,13 @@ void rhizome_apply_contentfilter(const struct config_rhizome_contentfilter *filt
     
     char match = 1;
     char ext_match = 0;
+    unsigned int i;
     
     if (filter->extensions.ac > 0){
         if (file_ext[0] == '\0'){
             match &= filter->match_noextension;
         } else {
-            for (unsigned int i = 0; i < filter->extensions.ac; i++){
+            for (i = 0; i < filter->extensions.ac; i++){
                 // strcmp equals 0, if strings are equal.
                 int this_ext_match = !strcmp(file_ext, filter->extensions.av[i].value);
                 DEBUGF(rhizome, "Matching filter ext: %s, file_ext: %s, this_ext_match: %i", filter->extensions.av[i].value, file_ext, this_ext_match);
