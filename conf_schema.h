@@ -1,4 +1,4 @@
-/* 
+/*
 Serval DNA configuration
 Copyright (C) 2012 Serval Project Inc.
 
@@ -411,6 +411,8 @@ ATOM(bool_t,                enable,     1, boolean,, "If true, Rhizome advertise
 ATOM(uint32_t,              interval,   500, uint32_nonzero,, "Interval between Rhizome advertisements")
 END_STRUCT
 
+// start rhizome.filters
+
 STRUCT(rhizome_filter)
 ATOM(uint64_t,              maxfilesize,     0, uint64_scaled,, "Maximum filesize to announce")
 ATOM(uint64_t,              announcetime, 0, uint64_scaled,, "Time a file is announced after insert")
@@ -420,12 +422,14 @@ ATOM(bool_t,                private,  0, boolean,, "If true, private Rhizome bun
 ATOM(bool_t,                public,   0, boolean,, "If true, public Rhizome bundles are not announced")
 END_STRUCT
 
+// start contentfilters
+
 ARRAY(contentfilter_extension_list, NO_DUPLICATES)
 KEY_ATOM(unsigned, uint)
 VALUE_STRING(32, str)
 END_ARRAY(10)
 
-STRUCT(rhizome_contentfilter) //VALIDATOR(vld_network_interface))
+STRUCT(rhizome_contentfilter)
 SUB_STRUCT(contentfilter_extension_list, extensions,)
 ATOM(bool_t,                match_noextension,  0, boolean,, "If true, filter will be applied to files without a file-extension.")
 ATOM(uint64_t,              min_size,   0,          uint64_scaled,, "Filter is applied, if File is bigger than min_size")
@@ -442,6 +446,13 @@ END_ARRAY(10)
 
 // end contentfilters
 
+STRUCT(rhizome_prefilter)
+ATOM(uint64_t,              maxfilesize,     0, uint64_scaled,, "Maximum filesize to announce")
+STRING(255,                 filename,     "", str_nonempty,, "Pattern to blacklist filter files by name")
+STRING(255,                 service,      "", str_nonempty,, "Pattern to blacklist filter services by name")
+ATOM(bool_t,                private,  0, boolean,, "If true, private Rhizome bundles are not announced")
+ATOM(bool_t,                public,   0, boolean,, "If true, public Rhizome bundles are not announced")
+END_STRUCT
 
 STRUCT(rhizome)
 ATOM(bool_t,                enable,         1, boolean,, "If true, server opens Rhizome database when starting")
@@ -462,6 +473,7 @@ SUB_STRUCT(rhizome_http,    http,)
 SUB_STRUCT(rhizome_mdp,     mdp,)
 SUB_STRUCT(rhizome_advertise, advertise,)
 SUB_STRUCT(rhizome_filter,  filter,)
+SUB_STRUCT(rhizome_prefilter,  prefilter,)
 SUB_STRUCT(contentfilter_list, contentfilters,)
 END_STRUCT
 

@@ -162,6 +162,7 @@ typedef struct rhizome_manifest
    */
   bool_t has_sender;
   bool_t has_recipient;
+  bool_t has_author;
 
   /* Local authorship.  Useful for dividing bundle lists between "sent" and
    * "inbox" views.

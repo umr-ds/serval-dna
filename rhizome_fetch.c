@@ -1,17 +1,17 @@
 /*
 Serval Distributed Numbering Architecture (DNA)
 Copyright (C) 2012 Serval Project Inc.
- 
+
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
 as published by the Free Software Foundation; either version 2
 of the License, or (at your option) any later version.
- 
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
- 
+
 You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
@@ -32,13 +32,15 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "socket.h"
 #include "dataformats.h"
 
+#include <regex.h>
+
 /* Represents a queued fetch of a bundle payload, for which the manifest is already known.
  */
 struct rhizome_fetch_candidate {
   rhizome_manifest *manifest;
 
   /* Address of node offering manifest.
-     Can be either IP+port for HTTP or it can be a SID 
+     Can be either IP+port for HTTP or it can be a SID
      for MDP. */
   struct socket_address addr;
   const struct subscriber *peer;
@@ -157,7 +159,7 @@ void rhizome_fetch_status(struct sched_ent *alarm)
 {
   if (!IF_DEBUG(rhizome))
     return;
-    
+
   unsigned i;
   for(i=0;i<NQUEUES;i++){
     struct rhizome_fetch_queue *q=&rhizome_fetch_queues[i];
@@ -260,8 +262,8 @@ static struct rhizome_fetch_slot *fetch_search_slot(const unsigned char *id, int
   unsigned i;
   for (i = 0; i < NQUEUES; ++i) {
     struct rhizome_fetch_queue *q = &rhizome_fetch_queues[i];
-    
-    if (q->active.state != RHIZOME_FETCH_FREE && 
+
+    if (q->active.state != RHIZOME_FETCH_FREE &&
 	memcmp(id, q->active.manifest->cryptoSignPublic.binary, prefix_length) == 0)
       return &q->active;
   }
@@ -302,7 +304,7 @@ int rhizome_fetch_bar_queued(const rhizome_bar_t *bar)
 {
   const uint8_t *prefix = rhizome_bar_prefix(bar);
   uint64_t version = rhizome_bar_version(bar);
-  
+
   rhizome_manifest *m=rhizome_fetch_search(prefix, RHIZOME_BAR_PREFIX_BYTES);
   if (m && m->version >= version)
     return 1;
@@ -419,7 +421,7 @@ int rhizome_ignore_manifest_check(const unsigned char *bid_prefix, int prefix_le
 {
   if (prefix_len < RHIZOME_BAR_PREFIX_BYTES)
     FATAL("Prefix length is too short");
-  
+
   int bin = bid_prefix[0]>>(8-IGNORED_BIN_BITS);
   int slot;
   for(slot = 0; slot != IGNORED_BIN_SIZE; ++slot)
@@ -430,7 +432,7 @@ int rhizome_ignore_manifest_check(const unsigned char *bid_prefix, int prefix_le
 	{
 	  if (ignored.bins[bin].m[slot].timeout>gettime_ms())
 	    return 1;
-	  else 
+	  else
 	    return 0;
 	}
     }
@@ -441,7 +443,7 @@ int rhizome_queue_ignore_manifest(const unsigned char *bid_prefix, int prefix_le
 {
   if (prefix_len < RHIZOME_BAR_PREFIX_BYTES)
     FATAL("Prefix length is too short");
-  
+
   /* The supplied manifest from a given IP has errors, or we already have it,
      so remember that it isn't worth considering for a while */
   int bin = bid_prefix[0]>>(8-IGNORED_BIN_BITS);
@@ -467,7 +469,7 @@ static int rhizome_import_received_bundle(struct rhizome_manifest *m)
 {
   if (!rhizome_manifest_validate(m))
     return 0;
-  DEBUGF(rhizome_rx, "manifest len=%zu has %u signatories. Associated filesize=%"PRIu64" bytes", 
+  DEBUGF(rhizome_rx, "manifest len=%zu has %u signatories. Associated filesize=%"PRIu64" bytes",
 	 m->manifest_all_bytes, m->sig_count, m->filesize);
   if (IF_DEBUG(rhizome_rx))
     dump("manifest", m->manifestdata, m->manifest_all_bytes);
@@ -510,10 +512,10 @@ schedule_fetch(struct rhizome_fetch_slot *slot)
        the database. */
     slot->manifest->dataFileName = NULL;
     slot->manifest->dataFileUnlinkOnFree = 0;
-    
+
     strbuf r = strbuf_local_buf(slot->request);
     strbuf_sprintf(r, "GET /rhizome/file/%s HTTP/1.0\r\n", alloca_tohex_rhizome_filehash_t(slot->manifest->filehash));
-    
+
     if (slot->manifest->is_journal){
       // if we're fetching a journal bundle, work out how many bytes we have of a previous version
       // and therefore what range of bytes we should ask for
@@ -666,12 +668,46 @@ status_ok:
  * @author Andrew Bettison <andrew@servalproject.com>
  */
 static enum rhizome_start_fetch_result
-rhizome_fetch(struct rhizome_fetch_slot *slot, rhizome_manifest *m, 
+rhizome_fetch(struct rhizome_fetch_slot *slot, rhizome_manifest *m,
   const struct socket_address *addr, const struct subscriber *peer)
 {
   IN();
   if (slot->state != RHIZOME_FETCH_FREE)
     RETURN(SLOTBUSY);
+
+  if(config.rhizome.prefilter.private && m->has_recipient != 0){
+    RETURN(DONOTWANT);
+  }
+
+  if(config.rhizome.prefilter.public && m->has_recipient == 0){
+    RETURN(DONOTWANT);
+  }
+
+  if(config.rhizome.prefilter.maxfilesize > 0 && m->filesize > config.rhizome.prefilter.maxfilesize){
+    RETURN(DONOTWANT);
+  }
+
+  if((config.rhizome.prefilter.service[0] != '\0') && (strcmp(m->service, config.rhizome.prefilter.service) == 0)){
+    RETURN(DONOTWANT);
+  }
+
+  if (config.rhizome.prefilter.filename[0] != '\0' && m->name) {
+      regex_t regex;
+      int regex_ret;
+
+      /* Compile regular expression */
+      if (regcomp(&regex, config.rhizome.prefilter.filename, 0)) {
+          WARNF("Compilation of Regex %s failed. Not prefiltering by filename.", config.rhizome.prefilter.filename);
+      } else {
+          /* Execute regular expression */
+          regex_ret = regexec(&regex, m->name, 0, NULL, 0);
+          if (!regex_ret) {
+              RETURN(DONOTWANT);
+          }
+      }
+      /* Free compiled regular expression if you want to use the regex_t again */
+      regfree(&regex);
+  }
 
   /* Do the quick rejection tests first, before the more expensive ones,
      like querying the database for manifests.
@@ -761,7 +797,7 @@ rhizome_fetch(struct rhizome_fetch_slot *slot, rhizome_manifest *m,
  * Returns -1 on error.
  */
 enum rhizome_start_fetch_result
-rhizome_fetch_request_manifest_by_prefix(const struct socket_address *addr, 
+rhizome_fetch_request_manifest_by_prefix(const struct socket_address *addr,
 					 const struct subscriber *peer,
 					 const unsigned char *prefix, size_t prefix_length)
 {
@@ -781,7 +817,7 @@ rhizome_fetch_request_manifest_by_prefix(const struct socket_address *addr,
      We do need to cache it in the slot structure, though, and then offer it
      for inserting into the database, but we can avoid the temporary file in
      the process. */
-  
+
   return schedule_fetch(slot);
 }
 
@@ -875,12 +911,12 @@ int rhizome_fetch_has_queue_space(unsigned char log2_size){
 int rhizome_suggest_queue_manifest_import(rhizome_manifest *m, const struct socket_address *addr, const struct subscriber *peer)
 {
   IN();
-  
+
   if (!config.rhizome.fetch){
     rhizome_manifest_free(m);
     RETURN(0);
   }
-  
+
   DEBUGF(rhizome_rx, "Considering import bid=%s version=%"PRIu64" size=%"PRIu64,
 	 alloca_tohex_rhizome_bid_t(m->cryptoSignPublic), m->version, m->filesize);
 
@@ -891,7 +927,7 @@ int rhizome_suggest_queue_manifest_import(rhizome_manifest *m, const struct sock
   }
 
   assert(m->filesize != RHIZOME_SIZE_UNSET);
-  
+
   // if we haven't verified it yet, verify now
   if (!m->selfSigned && !rhizome_manifest_verify(m)) {
     WHY("Error verifying manifest when considering queuing for import");
@@ -900,7 +936,7 @@ int rhizome_suggest_queue_manifest_import(rhizome_manifest *m, const struct sock
     rhizome_manifest_free(m);
     RETURN(-1);
   }
-  
+
   if (m->filesize == 0) {
     rhizome_import_received_bundle(m);
     rhizome_manifest_free(m);
@@ -930,7 +966,7 @@ int rhizome_suggest_queue_manifest_import(rhizome_manifest *m, const struct sock
 	  ci = j;
 	break;
       }
-      
+
       if (cmp_rhizome_bid_t(&m->cryptoSignPublic, &c->manifest->cryptoSignPublic) == 0) {
 	if (c->manifest->version >= m->version) {
 	  rhizome_manifest_free(m);
@@ -983,7 +1019,7 @@ static void rhizome_fetch_close(struct rhizome_fetch_slot *slot)
   if (slot->previous)
     rhizome_manifest_free(slot->previous);
   slot->previous = NULL;
-  
+
   if (slot->write_state.blob_fd != -1 || slot->write_state.blob_rowid != 0)
     rhizome_fail_write(&slot->write_state);
 
@@ -1027,7 +1063,7 @@ static int rhizome_fetch_mdp_touch_timeout(struct rhizome_fetch_slot *slot)
   // For now, we will just make the timeout 1 second from the time of the last
   // received block.
   unschedule(&slot->alarm);
-  slot->alarm.alarm=gettime_ms()+config.rhizome.mdp_stall_timeout; 
+  slot->alarm.alarm=gettime_ms()+config.rhizome.mdp_stall_timeout;
   slot->alarm.deadline=slot->alarm.alarm+500;
   schedule(&slot->alarm);
   return 0;
@@ -1036,25 +1072,25 @@ static int rhizome_fetch_mdp_touch_timeout(struct rhizome_fetch_slot *slot)
 static int rhizome_fetch_mdp_requestblocks(struct rhizome_fetch_slot *slot)
 {
   IN();
-  // only issue new requests every 133ms.  
+  // only issue new requests every 133ms.
   // we automatically re-issue once we have received all packets in this
   // request also, so if there is no packet loss, we can go substantially
   // faster.  Optimising behaviour when there is no packet loss is an
   // outstanding task.
-  
+
   struct internal_mdp_header header;
   bzero(&header, sizeof header);
-  
+
   header.source = my_subscriber;
   header.source_port = MDP_PORT_RHIZOME_RESPONSE;
   header.destination = (struct subscriber *)slot->peer;
   header.destination_port = MDP_PORT_RHIZOME_REQUEST;
   header.ttl = 1;
   header.qos = OQ_ORDINARY;
-  
+
   struct overlay_buffer *payload = ob_new();
   ob_append_bytes(payload, slot->bid.binary, sizeof slot->bid.binary);
-  
+
   uint32_t bitmap=0;
   int requests=32;
   int i;
@@ -1071,30 +1107,30 @@ static int rhizome_fetch_mdp_requestblocks(struct rhizome_fetch_slot *slot)
     }
     offset+=slot->mdpRXBlockLength;
   }
-  
+
   ob_append_ui64_rv(payload, slot->bidVersion);
   ob_append_ui64_rv(payload, slot->write_state.file_offset);
   ob_append_ui32_rv(payload, bitmap);
   ob_append_ui16_rv(payload, slot->mdpRXBlockLength);
-  
+
   DEBUGF(rhizome_tx, "src sid=%s, dst sid=%s, mdpRXWindowStart=0x%"PRIx64", slot->bidVersion=0x%"PRIx64,
 	 alloca_tohex_sid_t(header.source->sid),
 	 alloca_tohex_sid_t(header.destination->sid),
 	 slot->write_state.file_offset,
 	 slot->bidVersion);
-  
+
   ob_flip(payload);
   overlay_send_frame(&header, payload);
   ob_free(payload);
-  
+
   // remember when we sent the request so that we can adjust the inter-request
   // interval based on how fast the packets arrive.
   slot->mdpResponsesOutstanding=requests;
   slot->mdp_last_request_offset = slot->write_state.file_offset;
   slot->mdp_last_request_time = gettime_ms();
-  
+
   rhizome_fetch_mdp_touch_timeout(slot);
-  
+
   RETURN(0);
   OUT();
 }
@@ -1102,26 +1138,26 @@ static int rhizome_fetch_mdp_requestblocks(struct rhizome_fetch_slot *slot)
 static int pipe_journal(struct rhizome_fetch_slot *slot){
   if (!slot->previous)
     return 0;
-    
+
   /* we need to work out the overlapping range that we can copy from the previous version
    * then we can start to transfer only the new content in the journal
    *   old; [  tail  |0                   length]
    *   new; [  tail         |0                          length]
    *        [               | written | overlap |  new content]
    */
-  
+
   assert(slot->manifest->tail != RHIZOME_SIZE_UNSET);
   assert(slot->previous->tail != RHIZOME_SIZE_UNSET);
   assert(slot->previous->filesize != RHIZOME_SIZE_UNSET);
   uint64_t start = slot->manifest->tail - slot->previous->tail + slot->write_state.file_offset;
   uint64_t length = slot->previous->filesize - slot->manifest->tail - slot->write_state.file_offset;
-  
+
   // of course there might not be any overlap
   if (start < slot->previous->filesize && length>0){
     DEBUGF(rhizome, "Copying %"PRId64" bytes from previous journal", length);
     rhizome_journal_pipe(&slot->write_state, &slot->previous->filehash, start, length);
   }
-  
+
   // and we don't need to do this again, so drop the manifest
   rhizome_manifest_free(slot->previous);
   slot->previous=NULL;
@@ -1152,7 +1188,7 @@ static enum rhizome_start_fetch_result rhizome_fetch_switch_to_mdp(struct rhizom
 
   DEBUGF(rhizome_rx, "Trying to switch to MDP for Rhizome fetch: slot=0x%p (%"PRIu64" bytes)",
 	 slot, slot->write_state.file_length);
-  
+
   /* close socket and stop watching it */
   if (slot->alarm.poll.fd>=0) {
     unwatch(&slot->alarm);
@@ -1170,14 +1206,14 @@ static enum rhizome_start_fetch_result rhizome_fetch_switch_to_mdp(struct rhizom
   slot->state=RHIZOME_FETCH_RXFILEMDP;
 
   slot->last_write_time=gettime_ms();
-  
+
   pipe_journal(slot);
-  
+
     /* We are requesting a file.  The http request may have already received
-       some of the file, so take that into account when setting up ring buffer. 
+       some of the file, so take that into account when setting up ring buffer.
        Then send the request for the next block of data, and set our alarm to
        re-ask in a little while. "In a little while" is 266ms, which is roughly
-       the time it takes to send 32KB via WiFi broadcast at the 1Mbit base rate 
+       the time it takes to send 32KB via WiFi broadcast at the 1Mbit base rate
        (this will need tuning for non-WiFi interfaces). 32KB = 32 x 1024 bytes
        which is the block size we will use.  200bytes would allow for several
        blocks to fit into a packet, and probably fit at least one any any,
@@ -1186,13 +1222,13 @@ static enum rhizome_start_fetch_result rhizome_fetch_switch_to_mdp(struct rhizom
        transport.
     */
   slot->mdpIdleTimeout = config.rhizome.idle_timeout; // give up if nothing received for 5 seconds
-  
+
   unsigned char log_size=log2ll(slot->manifest->filesize);
   struct rhizome_fetch_queue *q=rhizome_find_queue(log_size);
   // increase the timeout based on the queue number
   if (q)
     slot->mdpIdleTimeout *= 1+(q - rhizome_fetch_queues);
-  
+
   slot->mdpRXBlockLength = config.rhizome.rhizome_mdp_block_size; // Rhizome over MDP block size
   rhizome_fetch_mdp_requestblocks(slot);
 
@@ -1255,7 +1291,7 @@ static int rhizome_write_complete(struct rhizome_fetch_slot *slot)
 
     if (slot->state==RHIZOME_FETCH_RXFILE) {
       INFOF("Completed http request from %s for file %s",
-	      alloca_socket_address(&slot->addr), 
+	      alloca_socket_address(&slot->addr),
 	      alloca_tohex_rhizome_filehash_t(slot->manifest->filehash));
     } else {
       INFOF("Completed MDP request from %s  for file %s",
@@ -1277,7 +1313,7 @@ static int rhizome_write_complete(struct rhizome_fetch_slot *slot)
 	DEBUGF(rhizome_rx, "Couldn't read manifest");
 	rhizome_manifest_free(m);
       } else {
-	DEBUGF(rhizome_rx, "All looks good for importing manifest id=%s, addr=%s, sid=%s", 
+	DEBUGF(rhizome_rx, "All looks good for importing manifest id=%s, addr=%s, sid=%s",
 	       alloca_tohex_rhizome_bid_t(m->cryptoSignPublic),
 	       alloca_socket_address(&slot->addr),
 	       slot->peer?alloca_tohex_sid_t(slot->peer->sid):"unknown"
@@ -1306,10 +1342,10 @@ static int rhizome_write_complete(struct rhizome_fetch_slot *slot)
 int rhizome_write_content(struct rhizome_fetch_slot *slot, unsigned char *buffer, size_t bytes)
 {
   IN();
-  
+
   if (bytes<=0)
     RETURN(0);
-  
+
   // Truncate to known length of file (handy for reading from journal bundles that
   // might grow while we are reading from them).
   if (bytes > slot->write_state.file_length - slot->write_state.file_offset) {
@@ -1325,7 +1361,7 @@ int rhizome_write_content(struct rhizome_fetch_slot *slot, unsigned char *buffer
     slot->manifest_bytes+=count;
     slot->write_state.file_offset += count;
   } else {
-    
+
     /* We are reading a file. Stream it into the database. */
     if (rhizome_write_buffer(&slot->write_state, buffer, bytes)){
       rhizome_fetch_close(slot);
@@ -1351,19 +1387,19 @@ int rhizome_received_content(const unsigned char *bidprefix,
     RETURN(-1);
   }
   struct rhizome_fetch_slot *slot=fetch_search_slot(bidprefix, 16);
-  
+
   if (slot && slot->bidVersion == version && slot->state == RHIZOME_FETCH_RXFILEMDP){
     DEBUGF(rhizome, "Rhizome over MDP receiving %zu bytes.", count);
     if (rhizome_random_write(&slot->write_state, offset, bytes, count)){
       DEBUGF(rhizome, "Write failed!");
       RETURN (-1);
     }
-    
+
     if (rhizome_write_complete(slot)){
       DEBUGF(rhizome, "Complete failed!");
       RETURN(-1);
     }
-    
+
     slot->last_write_time=gettime_ms();
     rhizome_fetch_mdp_touch_timeout(slot);
 
@@ -1374,14 +1410,14 @@ int rhizome_received_content(const unsigned char *bidprefix,
     }
     RETURN(0);
   }
-  
+
   // if we get a packet containing an entire payload
   // we may wish to store it, even if we aren't already fetching this payload via MDP
   if (offset == 0){
     rhizome_manifest *m = NULL;
     struct rhizome_fetch_candidate *c = NULL;
-    
-    if (slot && slot->bidVersion == version && slot->manifest->filesize == count 
+
+    if (slot && slot->bidVersion == version && slot->manifest->filesize == count
 	  && slot->state != RHIZOME_FETCH_RXFILEMDP) {
       m=slot->manifest;
     }else{
@@ -1390,7 +1426,7 @@ int rhizome_received_content(const unsigned char *bidprefix,
       if (c && c->manifest->version == version && c->manifest->filesize == count)
 	m=c->manifest;
     }
-    
+
     if (m){
       if (rhizome_import_buffer(m, bytes, count) == RHIZOME_PAYLOAD_STATUS_NEW) {
 	INFOF("Completed MDP transfer in one hit for file %s",
@@ -1399,14 +1435,14 @@ int rhizome_received_content(const unsigned char *bidprefix,
 	if (c)
 	  candidate_unqueue(c);
       }
-      
+
       if (slot)
 	rhizome_fetch_close(slot);
-      
+
       RETURN(0);
     }
   }
-  
+
   RETURN(-1);
   OUT();
 }
@@ -1491,7 +1527,7 @@ void rhizome_fetch_poll(struct sched_ent *alarm)
 	  if (slot->write_state.file_length == RHIZOME_SIZE_UNSET)
 	    slot->write_state.file_length = parts.content_length;
 	  else if (parts.content_length + parts.range_start != slot->write_state.file_length)
-	    WARNF("Expected content length %"PRIu64", got %"PRIu64" + %"PRIu64, 
+	    WARNF("Expected content length %"PRIu64", got %"PRIu64" + %"PRIu64,
 	      slot->write_state.file_length, parts.content_length, parts.range_start);
 	  /* We have all we need.  The file is already open, so just write out any initial bytes of
 	     the body we read.
@@ -1502,7 +1538,7 @@ void rhizome_fetch_poll(struct sched_ent *alarm)
 	      WARNF("Expected Content-Range header to start @%"PRIu64, slot->previous->filesize - slot->manifest->tail);
 	    pipe_journal(slot);
 	  }
-	  
+
 	  int content_bytes = slot->request + slot->request_len - parts.content_start;
 	  if (content_bytes > 0){
 	    rhizome_write_content(slot, (unsigned char*)parts.content_start, content_bytes);

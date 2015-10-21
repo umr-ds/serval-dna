@@ -55,7 +55,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
   portability and reliability, a separate process will be used.  That separate
   process will be another instance of the Serval daemon that will be run from the
   command line, and terminate when the synchronisation has completed, or when it
-  receives an appropriate signal.  This approach also ensures that the Rhizome 
+  receives an appropriate signal.  This approach also ensures that the Rhizome
   databases at each end will always be consistent (or more properly, not become
   inconsistent due to the operation of this protocol).
 
@@ -104,7 +104,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
   transitioned from running in the main servald process, into a separate process
   started by servald calling fork() (but not exec, since the same starting image
   will be fine).
-  
+
 */
 
 #include "serval.h"
@@ -117,14 +117,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 rhizome_direct_sync_request *rd_sync_handles[RHIZOME_DIRECT_MAX_SYNC_HANDLES];
 int rd_sync_handle_count=0;
 
-/* Create (but don't start) a rhizome direct sync request. 
+/* Create (but don't start) a rhizome direct sync request.
    This creates the record to say that we want to undertake this synchronisation,
    either once or at intervals as specified.
 
    The start process actually triggers the first filling of a cursor buffer, and
    then calls the transport specific dispatch function.  The transport specific
    dispatch function is expected to be asynchronous, and to call the continue
-   process.  
+   process.
 
    The transport specific dispatch function is also expected to tell rhizome
    direct about which bundles to send or receive, or to fetch/push them itself.
@@ -156,7 +156,7 @@ rhizome_direct_sync_request
   r->interval=interval;
   r->cursor=rhizome_direct_bundle_iterator(buffer_size);
   assert(r->cursor);
-  
+
   rd_sync_handles[rd_sync_handle_count++]=r;
   return r;
 }
@@ -171,7 +171,7 @@ int rhizome_direct_start_sync_request(rhizome_direct_sync_request *r)
 
   r->syncs_started++;
 
-  return rhizome_direct_continue_sync_request(r);  
+  return rhizome_direct_continue_sync_request(r);
 }
 
 int rhizome_direct_continue_sync_request(rhizome_direct_sync_request *r)
@@ -180,13 +180,13 @@ int rhizome_direct_continue_sync_request(rhizome_direct_sync_request *r)
   assert(r->syncs_started==r->syncs_completed+1);
 
   /* We might not get any BARs in the final fill, but it doesn't mean that
-     this cursor fill didn't cover a part of the BAR address space, so we 
-     still have to send it. 
+     this cursor fill didn't cover a part of the BAR address space, so we
+     still have to send it.
      We detect completion solely by whether on entering the call we have no
      more BAR address space or bundle data size bin space left to explore.
 
-     In short, if the cursor's current position is the limit position, 
-     then we can stop. 
+     In short, if the cursor's current position is the limit position,
+     then we can stop.
   */
 
   if (r->cursor->size_high>=r->cursor->limit_size_high)
@@ -202,7 +202,7 @@ int rhizome_direct_continue_sync_request(rhizome_direct_sync_request *r)
 	  /* seems that all is done */
 	  DEBUG(rhizome_direct, "All done");
 	  return rhizome_direct_conclude_sync_request(r);
-	} else 
+	} else
 	DEBUG(rhizome_direct, "Stuck on in-progress transfers");
       } else
 	DEBUGF(rhizome_direct, "bid_low<limit_bid_high");
@@ -211,7 +211,7 @@ int rhizome_direct_continue_sync_request(rhizome_direct_sync_request *r)
   int count=rhizome_direct_bundle_iterator_fill(r->cursor,-1);
 
   DEBUGF(rhizome_direct, "Got %d BARs",count);
-  
+
   r->dispatch_function(r);
 
   r->fills_sent++;
@@ -237,28 +237,28 @@ int rhizome_direct_conclude_sync_request(rhizome_direct_sync_request *r)
 	  DEBUG(rhizome_direct, "Found it");
 	  rhizome_direct_bundle_iterator_free(&r->cursor);
 	  free(r);
-	  
+
 	  if (i!=rd_sync_handle_count-1)
 	    rd_sync_handles[i]=rd_sync_handles[rd_sync_handle_count-1];
 	  rd_sync_handle_count--;
 	  DEBUGF(rhizome_direct, "handle count=%d",rd_sync_handle_count);
 	  return 0;
-	}    
+	}
     DEBUGF(rhizome_direct, "Couldn't find sync request handle in list.");
     return -1;
   }
-  
+
   return 0;
 }
 
 /*
   This function is called with the list of BARs for a specified cursor range
-  that the far-end possesses, i.e., what we are given is a list of the far end's 
+  that the far-end possesses, i.e., what we are given is a list of the far end's
   "I have"'s.  To produce our reply, we need to work out corresponding list of
-  "I have"'s, and then compare them to produce the list of "you have and I want" 
+  "I have"'s, and then compare them to produce the list of "you have and I want"
   and "I have and you want" that if fulfilled, would result in both ends having the
   same set of BARs for the specified cursor range.  The potential presense of
-  multiple versions of a given bundle introduces only a slight complication. 
+  multiple versions of a given bundle introduces only a slight complication.
 */
 
 rhizome_direct_bundle_cursor *rhizome_direct_get_fill_response(unsigned char *buffer,int size, int max_response_bytes)
@@ -277,7 +277,7 @@ rhizome_direct_bundle_cursor *rhizome_direct_get_fill_response(unsigned char *bu
   int max_intermediate_bytes
     =10+((max_response_bytes-10)/(1+RHIZOME_BAR_PREFIX_BYTES))*RHIZOME_BAR_BYTES;
   unsigned char usbuffer[max_intermediate_bytes];
-  rhizome_direct_bundle_cursor 
+  rhizome_direct_bundle_cursor
     *c=rhizome_direct_bundle_iterator(max_intermediate_bytes);
   assert(c!=NULL);
   if (rhizome_direct_bundle_iterator_unpickle_range(c,buffer,10))
@@ -293,7 +293,7 @@ rhizome_direct_bundle_cursor *rhizome_direct_get_fill_response(unsigned char *bu
   /* Get our list of BARs for the same cursor range */
   int us_count=rhizome_direct_bundle_iterator_fill(c,-1);
   DEBUGF(rhizome_direct, "Found %d manifests in that range",us_count);
-  
+
   /* Transfer to a temporary buffer, so that we can overwrite
      the cursor's buffer with the response data. */
   bcopy(c->buffer,usbuffer,10+us_count*RHIZOME_BAR_BYTES);
@@ -301,7 +301,7 @@ rhizome_direct_bundle_cursor *rhizome_direct_get_fill_response(unsigned char *bu
   c->buffer_used=0;
 
   /* Iterate until we are through both lists.
-     Note that the responses are (1+RHIZOME_BAR_PREFIX_BYTES)-bytes each, much 
+     Note that the responses are (1+RHIZOME_BAR_PREFIX_BYTES)-bytes each, much
      smaller than the 32 bytes used by BARs, therefore the response will never be
      bigger than the request, and so we don't need to worry about overflows. */
   int them=0,us=0;
@@ -427,7 +427,7 @@ rhizome_manifest *rhizome_direct_get_manifest(unsigned char *bid_prefix, size_t 
 	WHYF("sqlite3_blob_open() failed, %s", sqlite3_errmsg(rhizome_db));
 	sqlite3_finalize(statement);
 	return NULL;
-	
+
       }
       sqlite_retry_done(&retry, "sqlite3_blob_open");
 
@@ -445,13 +445,12 @@ rhizome_manifest *rhizome_direct_get_manifest(unsigned char *bid_prefix, size_t 
 	goto error;
       memcpy(m->manifestdata, manifestblob, manifestblobsize);
       m->manifest_all_bytes = manifestblobsize;
-      if (   rhizome_manifest_parse(m) == -1
-	  || !rhizome_manifest_validate(m)
-      ) {
-	rhizome_manifest_free(m);
-	goto error;
+      if (rhizome_manifest_parse(m) == -1 || !rhizome_manifest_validate(m)) {
+	        rhizome_manifest_free(m);
+	         goto error;
       }
-      
+      WARNF("Name: %s", m->name);
+
       DEBUGF(rhizome_direct, "Read manifest");
       sqlite3_blob_close(blob);
       sqlite3_finalize(statement);
@@ -462,7 +461,7 @@ rhizome_manifest *rhizome_direct_get_manifest(unsigned char *bid_prefix, size_t 
       sqlite3_finalize(statement);
       return NULL;
     }
-  else 
+  else
     {
       DEBUGF(rhizome_direct, "no matching manifests");
       sqlite3_finalize(statement);
@@ -638,7 +637,7 @@ int rhizome_direct_bundle_iterator_fill(rhizome_direct_bundle_cursor *c,int max_
   c->buffer_used=0;
 
   /* Note where we are starting the cursor fill from, so that the caller can easily
-     communicate the range of interest to the far end.  We will eventually have a 
+     communicate the range of interest to the far end.  We will eventually have a
      cursor set function that will allow that information to be loaded back in at
      the far end.  We will similarly need to have a mechanism to limit the end of
      the range that the cursor will cover, so that responses to the exact range
@@ -659,7 +658,7 @@ int rhizome_direct_bundle_iterator_fill(rhizome_direct_bundle_cursor *c,int max_
   DEBUGF(rhizome_direct, "Iterating cursor size high %"PRId64"..%"PRId64", max_bars=%d",
 	 c->size_high,c->limit_size_high,max_bars);
 
-  while (bundles_stuffed<max_bars&&c->size_high<=c->limit_size_high) 
+  while (bundles_stuffed<max_bars&&c->size_high<=c->limit_size_high)
     {
       /* Don't overrun the cursor's buffer */
       int stuffable
@@ -704,7 +703,7 @@ int rhizome_direct_bundle_iterator_fill(rhizome_direct_bundle_cursor *c,int max_
 	}
 	if (i<0) break;
       }
-    }  
+    }
 
   /* Record range of cursor that this call covered. */
   rhizome_direct_bundle_iterator_pickle_range(c,c->buffer,c->buffer_offset_bytes);
@@ -720,7 +719,7 @@ void rhizome_direct_bundle_iterator_free(rhizome_direct_bundle_cursor **c)
 }
 
 /* Read upto the <bars_requested> next BARs from the Rhizome database,
-   beginning from the first BAR that corresponds to a manifest with 
+   beginning from the first BAR that corresponds to a manifest with
    BID>=<bid_low>.
    Sets <bid_high> to the highest BID for which a BAR was returned.
    Return value is the number of BARs written into <bars_out>.
@@ -757,10 +756,10 @@ int rhizome_direct_get_bars(const rhizome_bid_t *bidp_low,
       // bundles with out of range filesize values
       // " WHERE id >= ? AND id <= ? AND filesize > ? AND filesize < ?"
       END);
-  sqlite3_blob *blob=NULL;  
+  sqlite3_blob *blob=NULL;
 
   int bars_written=0;
-  
+
   while(bars_written<bars_requested
 	&&  sqlite_step_retry(&retry, statement) == SQLITE_ROW)
     {
@@ -775,7 +774,7 @@ int rhizome_direct_get_bars(const rhizome_bid_t *bidp_low,
 	if (filesize<size_low||filesize>size_high) {
 	  DEBUGF(rhizome_direct, "WEIRDNESS ALERT: filesize=%"PRId64", but query was: %s", filesize, sqlite3_sql(statement));
 	  break;
-	} 
+	}
 	int64_t rowid = sqlite3_column_int64(statement, 1);
 	do ret = sqlite3_blob_open(rhizome_db, "main", "manifests", "bar",
 				   rowid, 0 /* read only */, &blob);
@@ -785,14 +784,14 @@ int rhizome_direct_get_bars(const rhizome_bid_t *bidp_low,
 	  continue;
 	}
 	sqlite_retry_done(&retry, "sqlite3_blob_open");
-	
+
 	int blob_bytes=sqlite3_blob_bytes(blob);
 	if (blob_bytes!=RHIZOME_BAR_BYTES) {
 	  DEBUG(rhizome_direct, "Found a BAR that is the wrong size - ignoring");
 	  sqlite3_blob_close(blob);
 	  blob=NULL;
 	  continue;
-	}	
+	}
 	sqlite3_blob_read(blob,&bars_out[bars_written*RHIZOME_BAR_BYTES],
 			  RHIZOME_BAR_BYTES,0);
 	sqlite3_blob_close(blob);
@@ -813,7 +812,6 @@ int rhizome_direct_get_bars(const rhizome_bid_t *bidp_low,
   if (statement)
     sqlite3_finalize(statement);
   statement = NULL;
-  
+
   return bars_written;
 }
-
