@@ -449,7 +449,6 @@ rhizome_manifest *rhizome_direct_get_manifest(unsigned char *bid_prefix, size_t 
 	        rhizome_manifest_free(m);
 	         goto error;
       }
-      WARNF("Name: %s", m->name);
 
       DEBUGF(rhizome_direct, "Read manifest");
       sqlite3_blob_close(blob);

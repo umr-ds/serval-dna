@@ -389,7 +389,6 @@ void _rhizome_manifest_set_author(struct __sourceloc __whence, rhizome_manifest 
     if (m->authorship == ANONYMOUS || cmp_sid_t(&m->author, sidp) != 0) {
       DEBUGF(rhizome_manifest, "SET manifest[%d] author = %s", m->manifest_record_number, alloca_tohex_sid_t(*sidp));
       m->author = *sidp;
-      m->has_author = 1;
       m->authorship = AUTHOR_NOT_CHECKED;
     }
   } else
@@ -402,7 +401,6 @@ void _rhizome_manifest_del_author(struct __sourceloc __whence, rhizome_manifest 
     DEBUGF(rhizome_manifest, "DEL manifest[%d] author", m->manifest_record_number);
     m->author = SID_ANY;
     m->authorship = ANONYMOUS;
-    m->has_author = 0;
   }
 }
 
@@ -623,7 +621,6 @@ int rhizome_manifest_parse(rhizome_manifest *m)
       DEBUGF(rhizome_manifest, "Missing manifest newline at line %u: %s", line_number, alloca_toprint(-1, plabel, p - plabel));
       break;
     }
-    // WARNF("Label: %s, Value: %s", plabel, pvalue);
     const char *const eol = (p > pvalue && p[-1] == '\r') ? p - 1 : p;
     enum rhizome_manifest_parse_status status = rhizome_manifest_parse_field(m, plabel, pvalue - plabel - 1, pvalue, eol - pvalue);
     int status_ok = 0;
@@ -759,28 +756,6 @@ static int _rhizome_manifest_parse_filesize(rhizome_manifest *m, const char *tex
   if (!str_to_uint64(text, 10, &size, NULL) || size == RHIZOME_SIZE_UNSET)
     return 0;
   rhizome_manifest_set_filesize(m, size);
-  return 1;
-}
-
-static int _rhizome_manifest_test_author(const rhizome_manifest *m)
-{
-  return m->has_author;
-}
-static void _rhizome_manifest_unset_author(struct __sourceloc __whence, rhizome_manifest *m)
-{
-  rhizome_manifest_set_author(m, NULL);
-}
-static void _rhizome_manifest_copy_author(struct __sourceloc __whence, rhizome_manifest *m, const rhizome_manifest *srcm)
-{
-  rhizome_manifest_set_author(m, srcm->has_sender ? &srcm->sender : NULL);
-}
-static int _rhizome_manifest_parse_author(rhizome_manifest *m, const char *text)
-{
-  WARNF("AUTHOR: %s", text);
-  sid_t sid;
-  if (str_to_sid_t(&sid, text) == -1)
-    return 0;
-  rhizome_manifest_set_author(m, &sid);
   return 1;
 }
 
@@ -966,7 +941,6 @@ static struct rhizome_manifest_field_descriptor {
 	FIELD(1, filehash),
 	FIELD(1, filesize),
 	FIELD(1, tail),
-	FIELD(1, author),
 	FIELD(0, BK),
 	FIELD(0, service),
 	FIELD(0, date),
