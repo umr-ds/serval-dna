@@ -454,6 +454,8 @@ ATOM(bool_t,                private,  0, boolean,, "If true, private Rhizome bun
 ATOM(bool_t,                public,   0, boolean,, "If true, public Rhizome bundles are not announced")
 END_STRUCT
 
+// end rhizome.filters
+
 STRUCT(rhizome)
 ATOM(bool_t,                enable,         1, boolean,, "If true, server opens Rhizome database when starting")
 ATOM(bool_t,                fetch,          1, boolean,, "If false, no new bundles will be fetched from peers")
