@@ -452,6 +452,7 @@ STRING(255,                 filename,     "", str_nonempty,, "Pattern to blackli
 STRING(255,                 service,      "", str_nonempty,, "Pattern to blacklist filter services by name")
 ATOM(bool_t,                private,  0, boolean,, "If true, private Rhizome bundles are not announced")
 ATOM(bool_t,                public,   0, boolean,, "If true, public Rhizome bundles are not announced")
+ATOM(sid_t,                 sender,   SID_ANY, sid,, "A SID to block a sender.")
 END_STRUCT
 
 // end rhizome.filters

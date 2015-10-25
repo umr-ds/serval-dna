@@ -691,6 +691,13 @@ rhizome_fetch(struct rhizome_fetch_slot *slot, rhizome_manifest *m,
     RETURN(DONOTWANT);
   }
 
+  if(!is_sid_t_any(config.rhizome.prefilter.sender) && m->has_sender != 0){
+    char *sender_sid = alloca_tohex_sid_t(m->sender);
+    char *filter_sid = alloca_tohex_sid_t(config.rhizome.prefilter.sender);
+    if (!strcmp(sender_sid, filter_sid))
+      RETURN(DONOTWANT);
+  }
+
   if (config.rhizome.prefilter.filename[0] != '\0' && m->name) {
       regex_t regex;
       int regex_ret;
