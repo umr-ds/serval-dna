@@ -121,23 +121,25 @@ static int app_rhizome_add_file(const struct cli_parsed *parsed, struct cli_cont
     cli_arg(parsed, "bundleid", &bundleIdHex, cli_optional_bid, "");
   if (cli_arg(parsed, "bsk", &bsktext, cli_optional_bundle_secret_key, NULL) == -1)
     return -1;
-    
-  cli_arg(parsed, "--sender", &senderSidHex, cli_optional_sid, "") == 0 || cli_arg(parsed, "sender_sid", &senderSidHex, cli_optional_sid, "");
-  cli_arg(parsed, "--recipient", &recipientSidHex, cli_optional_sid, "") == 0 || cli_arg(parsed, "recipient_sid", &recipientSidHex, cli_optional_sid, "");
-  
+
+  if (cli_arg(parsed, "--sender", &senderSidHex, cli_optional_sid, "") != 0)
+    cli_arg(parsed, "sender_sid", &senderSidHex, cli_optional_sid, "");
+  if (cli_arg(parsed, "--recipient", &recipientSidHex, cli_optional_sid, "") != 0)
+    cli_arg(parsed, "recipient_sid", &recipientSidHex, cli_optional_sid, "");
+
   sid_t authorSid;
   if (!authorSidHex || !*authorSidHex)
     authorSidHex = NULL;
   else if (str_to_sid_t(&authorSid, authorSidHex) == -1)
     return WHYF("invalid author_sid: %s", authorSidHex);
 
-    
+
   sid_t senderSid;
   if (!senderSidHex || !*senderSidHex)
     senderSidHex = NULL;
   else if (str_to_sid_t(&senderSid, senderSidHex) == -1)
     return WHYF("invalid sender_sid: %s", senderSidHex);
-    
+
   sid_t recipientSid;
   if (!recipientSidHex || !*recipientSidHex)
     recipientSidHex = NULL;
@@ -217,12 +219,12 @@ static int app_rhizome_add_file(const struct cli_parsed *parsed, struct cli_cont
       goto finish;
     }
   }
-    
+
   if(senderSidHex)
     rhizome_manifest_set_sender(m, &senderSid);
   if(recipientSidHex)
     rhizome_manifest_set_recipient(m, &recipientSid);
-    
+
 
   /* Create an in-memory manifest for the file being added.
    */
@@ -234,8 +236,8 @@ static int app_rhizome_add_file(const struct cli_parsed *parsed, struct cli_cont
 								  filepath,
 								  nfields, fields,
 								  NULL);
- 
-    
+
+
   int result_valid = 0;
   switch (result) {
   case RHIZOME_ADD_FILE_ERROR:
