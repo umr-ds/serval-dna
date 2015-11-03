@@ -674,47 +674,61 @@ rhizome_fetch(struct rhizome_fetch_slot *slot, rhizome_manifest *m,
   IN();
   if (slot->state != RHIZOME_FETCH_FREE)
     RETURN(SLOTBUSY);
-
-  if(config.rhizome.prefilter.private && m->has_recipient != 0){
-    RETURN(DONOTWANT);
+    
+  WARNF("In prefilters - public: %i; private: %i", config.rhizome.prefilter.public, config.rhizome.prefilter.private);
+  WARNF("Rhizome reciever: %s", alloca_tohex_sid_t(m->recipient));
+  
+  if(config.rhizome.prefilter.private && memcmp(&m->recipient, &SID_ANY, 32)){
+    WARNF("Private prefilter check for %s", alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
+    rhizome_store_prefiltered(m);
+    RETURN(WHY("Ignoring prefilter private file"));
   }
-
-  if(config.rhizome.prefilter.public && m->has_recipient == 0){
-    RETURN(DONOTWANT);
+  
+  if(config.rhizome.prefilter.public && !memcmp(&m->recipient, &SID_ANY, 32)){
+    WARNF("Public prefilter check for %s", alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
+    rhizome_store_prefiltered(m);
+    RETURN(WHY("Ignoring prefilter public file"));
   }
 
   if(config.rhizome.prefilter.maxfilesize > 0 && m->filesize > config.rhizome.prefilter.maxfilesize){
+    rhizome_store_prefiltered(m);
     RETURN(DONOTWANT);
   }
 
   if((config.rhizome.prefilter.service[0] != '\0') && (strcmp(m->service, config.rhizome.prefilter.service) == 0)){
+    rhizome_store_prefiltered(m);
     RETURN(DONOTWANT);
   }
 
   if(!is_sid_t_any(config.rhizome.prefilter.sender) && m->has_sender != 0){
     char *sender_sid = alloca_tohex_sid_t(m->sender);
     char *filter_sid = alloca_tohex_sid_t(config.rhizome.prefilter.sender);
-    if (!strcmp(sender_sid, filter_sid))
+    if (!strcmp(sender_sid, filter_sid)){
+      rhizome_store_prefiltered(m);
       RETURN(DONOTWANT);
+    }
   }
 
   if (config.rhizome.prefilter.filename[0] != '\0' && m->name) {
-      regex_t regex;
-      int regex_ret;
-
-      /* Compile regular expression */
-      if (regcomp(&regex, config.rhizome.prefilter.filename, 0)) {
-          WARNF("Compilation of Regex %s failed. Not prefiltering by filename.", config.rhizome.prefilter.filename);
-      } else {
-          /* Execute regular expression */
-          regex_ret = regexec(&regex, m->name, 0, NULL, 0);
-          if (!regex_ret) {
-              RETURN(DONOTWANT);
-          }
+    regex_t regex;
+    int regex_ret;
+    
+    /* Compile regular expression */
+    if (regcomp(&regex, config.rhizome.prefilter.filename, 0)) {
+      WARNF("Compilation of Regex %s failed. Not prefiltering by filename.", config.rhizome.prefilter.filename);
+    } else {
+      /* Execute regular expression */
+      regex_ret = regexec(&regex, m->name, 0, NULL, 0);
+      if (!regex_ret) {
+        rhizome_store_prefiltered(m);
+        RETURN(DONOTWANT);
       }
-      /* Free compiled regular expression if you want to use the regex_t again */
-      regfree(&regex);
+    }
+    /* Free compiled regular expression if you want to use the regex_t again */
+    regfree(&regex);
   }
+  
+  WARNF("Prefilters done.");
 
   /* Do the quick rejection tests first, before the more expensive ones,
      like querying the database for manifests.

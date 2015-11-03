@@ -457,6 +457,7 @@ rhizome_manifest *_rhizome_new_manifest(struct __sourceloc);
 #define rhizome_new_manifest() _rhizome_new_manifest(__WHENCE__)
 
 int rhizome_store_manifest(rhizome_manifest *m);
+int rhizome_store_prefiltered(rhizome_manifest *m);
 int rhizome_store_file(rhizome_manifest *m,const unsigned char *key);
 
 enum rhizome_add_file_result {

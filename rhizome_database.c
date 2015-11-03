@@ -263,7 +263,12 @@ int rhizome_opendb()
 		      "id text not null primary key, "
 		      "data blob"
 		  ");", END) == -1
-      ||	sqlite_exec_void_retry(&retry,
+        ||	sqlite_exec_void_retry(&retry,
+            "CREATE TABLE IF NOT EXISTS PREFILTERED("
+                "id text not null primary key, "
+                "bar blob"
+            ");", END) == -1
+        ||	sqlite_exec_void_retry(&retry,
 		  "CREATE TABLE IF NOT EXISTS IDENTITY("
 		      "uuid text not null"
 		  "); ", END) == -1
@@ -310,6 +315,13 @@ int rhizome_opendb()
       sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "ALTER TABLE FILES ADD COLUMN last_verified integer;", END);
     }
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "PRAGMA user_version=7;", END);
+  }
+  if (version<8){
+    if (meta.mtime.tv_sec != -1){
+      sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "CREATE TABLE IF NOT EXISTS PREFILTERED(id text not null primary key, bar blob);", END);
+      sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "ALTER TABLE MANIFESTS ADD COLUMN active integer;", END);
+    }
+    sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "PRAGMA user_version=8;", END);
   }
 
   // TODO recreate tables with collate nocase on all hex columns
@@ -1370,6 +1382,51 @@ rollback:
   return -1;
 }
 
+/*
+ Store the id and bar of a prefiltered rhizome manifest into the PREFILTERED table.
+ */
+int rhizome_store_prefiltered(rhizome_manifest *m)
+{
+    /* Bind BAR to data field */
+    rhizome_bar_t bar;
+    rhizome_manifest_to_bar(m, &bar);
+    
+    sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
+    if (sqlite_exec_void_retry(&retry, "BEGIN TRANSACTION;", END) == -1)
+        return WHY("Failed to begin transaction");
+    
+    sqlite3_stmt *stmt;
+    if ((stmt = sqlite_prepare_bind(&retry,
+                                    "INSERT OR REPLACE INTO PREFILTERED("
+                                    "id,"
+                                    "bar"
+                                    ") VALUES("
+                                    "?,?"
+                                    ");",
+                                    RHIZOME_BID_T, &m->cryptoSignPublic,
+                                    RHIZOME_BAR_T, &bar,
+                                    END
+                                    )
+         ) == NULL)
+        goto rollback;
+    if (!sqlite_code_ok(sqlite_step_retry(&retry, stmt)))
+        goto rollback;
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+    
+    if (sqlite_exec_void_retry(&retry, "COMMIT;", END) != -1){
+        // This message used in tests; do not modify or remove.
+        INFOF("RHIZOME ADD PREFILTERED id=%s", alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
+        return 0;
+    }
+rollback:
+    if (stmt)
+        sqlite3_finalize(stmt);
+    WHYF("Failed to store prefiltered bid=%s", alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
+    sqlite_exec_void_retry(&retry, "ROLLBACK;", END);
+    return -1;
+}
+
 static void trigger_rhizome_bundle_added_debug(rhizome_manifest *m)
 {
   DEBUGF(rhizome, "TRIGGER rhizome_bundle_added service=%s bid=%s version=%"PRIu64,
@@ -1833,12 +1890,35 @@ static int is_interesting(const char *id_hex, uint64_t version)
   OUT();
 }
 
+int rhizome_is_bar_prefiltered(const char *id_hex){
+  
+  IN();
+  
+  sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
+  sqlite3_stmt *statement = sqlite_prepare_bind(&retry, "SELECT id FROM PREFILTERED WHERE id LIKE ?;", TEXT_TOUPPER, id_hex, END);
+  
+  if (!statement)
+    RETURN(-1);
+  int ret = 0;
+  int row = sqlite_step_retry(&retry, statement);
+  if (row == SQLITE_ROW){
+    ret = 1;
+  } else if(sqlite_code_ok(row)) {
+    ret = 0;
+  } else {
+    ret = -1;
+  }
+  sqlite3_finalize(statement);
+  RETURN(ret);
+  OUT();
+}
+
 int rhizome_is_bar_interesting(const rhizome_bar_t *bar)
 {
   char id_hex[RHIZOME_BAR_PREFIX_BYTES *2 + 2];
   tohex(id_hex, RHIZOME_BAR_PREFIX_BYTES * 2, rhizome_bar_prefix(bar));
   strcat(id_hex, "%");
-  return is_interesting(id_hex, rhizome_bar_version(bar));
+  return rhizome_is_bar_prefiltered(id_hex) == 0 && is_interesting(id_hex, rhizome_bar_version(bar));
 }
 
 int rhizome_is_manifest_interesting(rhizome_manifest *m)
