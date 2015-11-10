@@ -1066,7 +1066,7 @@ DEFINE_CMD(app_meshms_send_message, 0,
   "Send a MeshMS message from <sender_sid> to <recipient_sid>",
   "meshms","send","message" KEYRING_PIN_OPTIONS, "<sender_sid>", "<recipient_sid>", "<payload>");
 DEFINE_CMD(app_meshms_send_message, 0,
-  "Send a MeshMS message from <sender_sid> to <recipient_sid>",
+  "Publish a MeshMS message from <sender_sid> which can be seen by everybody (unencrypted!)",
   "meshms","publish" KEYRING_PIN_OPTIONS, "<sender_sid>", "<payload>");
 static int app_meshms_send_message(const struct cli_parsed *parsed, struct cli_context *UNUSED(context))
 {
