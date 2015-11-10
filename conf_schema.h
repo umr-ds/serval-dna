@@ -420,6 +420,7 @@ ATOM(bool_t,                private,  0, boolean,, "If true, private Rhizome bun
 ATOM(bool_t,                public,   0, boolean,, "If true, public Rhizome bundles are not announced")
 END_STRUCT
 
+// start contentfilters
 ARRAY(contentfilter_extension_list, NO_DUPLICATES)
 KEY_ATOM(unsigned, uint)
 VALUE_STRING(32, str)
@@ -439,9 +440,24 @@ ARRAY(contentfilter_list, NO_DUPLICATES)
 KEY_ATOM(unsigned, uint)
 VALUE_SUB_STRUCT(rhizome_contentfilter)
 END_ARRAY(10)
-
 // end contentfilters
 
+// start prefilters
+ARRAY(rhizome_prefilter_sid_list, NO_DUPLICATES)
+KEY_ATOM(unsigned, uint)
+VALUE_ATOM(sid_t, sid)
+END_ARRAY(100)
+
+STRUCT(rhizome_prefilter)
+ATOM(uint64_t,              maxfilesize,     UINT64_MAX, uint64_scaled,, "Maximum filesize to announce")
+ATOM(uint64_t,              refresh_time,     60, uint64_scaled,, "Time interval, prefiltered manifests are ignored")
+STRING(255,                 filename,     "", str_nonempty,, "Pattern to blacklist filter files by name")
+STRING(255,                 service,      "", str_nonempty,, "Pattern to blacklist filter services by name")
+ATOM(bool_t,                private,  0, boolean,, "If true, private Rhizome bundles are not announced")
+ATOM(bool_t,                public,   0, boolean,, "If true, public Rhizome bundles are not announced")
+SUB_STRUCT(rhizome_prefilter_sid_list, sid,)
+END_STRUCT
+// end prefilters
 
 STRUCT(rhizome)
 ATOM(bool_t,                enable,         1, boolean,, "If true, server opens Rhizome database when starting")
@@ -462,6 +478,7 @@ SUB_STRUCT(rhizome_http,    http,)
 SUB_STRUCT(rhizome_mdp,     mdp,)
 SUB_STRUCT(rhizome_advertise, advertise,)
 SUB_STRUCT(rhizome_filter,  filter,)
+SUB_STRUCT(rhizome_prefilter,  prefilter,)
 SUB_STRUCT(contentfilter_list, contentfilters,)
 END_STRUCT
 

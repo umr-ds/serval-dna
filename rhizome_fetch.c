@@ -17,6 +17,7 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
+#include <regex.h>
 #include <time.h>
 #include <arpa/inet.h>
 #include <assert.h>
@@ -485,6 +486,62 @@ static int rhizome_import_received_bundle(struct rhizome_manifest *m)
     default:
       FATALF("rhizome_add_manifest() returned %d", status);
   }
+}
+
+int rhizome_prefilter_manifest(struct rhizome_manifest *m){
+  
+  if(config.rhizome.prefilter.private && m->has_recipient){
+    DEBUGF(rhizome, "Prefiltered private manifest %s", alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
+    return DONOTWANT;
+  }
+  
+  if(config.rhizome.prefilter.public && !m->has_recipient){
+    DEBUGF(rhizome, "Prefiltered public manifest %s", alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
+    return DONOTWANT;
+  }
+  
+  if(m->filesize > config.rhizome.prefilter.maxfilesize){
+    DEBUGF(rhizome, "Prefiltered large (%i) manifest %s", m->filesize, alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
+    return DONOTWANT;
+  }
+  
+  if((config.rhizome.prefilter.service[0] != '\0') && (strcmp(m->service, config.rhizome.prefilter.service) == 0)){
+    DEBUGF(rhizome, "Prefiltered service (%s) manifest %s", m->service, alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
+    return DONOTWANT;
+  }
+  
+  unsigned int i;
+  if (m->has_sender){
+    for (i = 0; i < config.rhizome.prefilter.sid.ac; i++){
+      // cmp_sid_t equals 0, if sids are equal.
+      if(!cmp_sid_t(&config.rhizome.prefilter.sid.av[i].value, &m->sender)){
+        DEBUGF(rhizome, "Prefiltered sender (%s) manifest %s", alloca_tohex_sid_t(m->sender), alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
+        return DONOTWANT;
+      }
+    }
+  }
+  
+  if (config.rhizome.prefilter.filename[0] != '\0' && m->name) {
+    regex_t regex;
+    int regex_ret;
+    
+    /* Compile regular expression */
+    if (regcomp(&regex, config.rhizome.prefilter.filename, 0)) {
+      WARNF("Compilation of Regex %s failed. Not prefiltering by filename.", config.rhizome.prefilter.filename);
+    } else {
+      /* Execute regular expression */
+      regex_ret = regexec(&regex, m->name, 0, NULL, 0);
+      if (!regex_ret) {
+        DEBUGF(rhizome, "Prefiltered filename (%s) manifest %s", m->name, alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
+        return DONOTWANT;
+      }
+    }
+    /* Free compiled regular expression if you want to use the regex_t again */
+    regfree(&regex);
+  }
+  
+  WARNF("Prefilters done.");
+  return STARTED;
 }
 
 /* Returns STARTED (0) if the fetch was started.

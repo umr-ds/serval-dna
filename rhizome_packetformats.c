@@ -264,6 +264,11 @@ int overlay_rhizome_saw_advertisements(struct decode_context *context, struct ov
       assert(m->version == summ.version);
       assert(m->manifest_body_bytes == summ.body_len);
       
+      if (rhizome_prefilter_manifest(m) == DONOTWANT){
+        rhizome_queue_ignore_manifest(m->cryptoSignPublic.binary, sizeof m->cryptoSignPublic.binary, config.rhizome.prefilter.refresh_time * 1000);
+        goto next;
+      }
+            
       // start the fetch process!
       rhizome_suggest_queue_manifest_import(m, &httpaddr, f->source);
       // the above function will free the manifest structure, make sure we don't free it again

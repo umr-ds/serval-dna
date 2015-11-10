@@ -667,6 +667,7 @@ int rhizome_sign_hash_with_key(rhizome_manifest *m,const unsigned char *sk,
 int rhizome_verify_bundle_privatekey(const unsigned char *sk, const unsigned char *pk);
 int rhizome_queue_ignore_manifest(const unsigned char *bid_prefix, int prefix_len, int timeout);
 int rhizome_ignore_manifest_check(const unsigned char *bid_prefix, int prefix_len);
+int rhizome_prefilter_manifest(struct rhizome_manifest *m);
 
 /* Rhizome list cursor for iterating over all or a subset of manifests in the store.
  */
