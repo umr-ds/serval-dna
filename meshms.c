@@ -202,7 +202,9 @@ static int create_ply(const sid_t *my_sid, struct meshms_conversations *conv, rh
   if (rhizome_fill_manifest(m, NULL, my_sid) != NULL)
     return -1;
   assert(m->haveSecret);
-  assert(m->payloadEncryption == PAYLOAD_ENCRYPTED);
+  if (cmp_sid_t(&m->recipient, &SID_BROADCAST) != 0)
+    assert(m->payloadEncryption == PAYLOAD_ENCRYPTED);
+  
   conv->my_ply.bundle_id = m->cryptoSignPublic;
   conv->found_my_ply = 1;
   return 0;
@@ -1063,11 +1065,14 @@ static int app_meshms_conversations(const struct cli_parsed *parsed, struct cli_
 DEFINE_CMD(app_meshms_send_message, 0,
   "Send a MeshMS message from <sender_sid> to <recipient_sid>",
   "meshms","send","message" KEYRING_PIN_OPTIONS, "<sender_sid>", "<recipient_sid>", "<payload>");
+DEFINE_CMD(app_meshms_send_message, 0,
+  "Send a MeshMS message from <sender_sid> to <recipient_sid>",
+  "meshms","publish" KEYRING_PIN_OPTIONS, "<sender_sid>", "<payload>");
 static int app_meshms_send_message(const struct cli_parsed *parsed, struct cli_context *UNUSED(context))
 {
   const char *my_sidhex, *their_sidhex, *message;
   if (cli_arg(parsed, "sender_sid", &my_sidhex, str_is_subscriber_id, "") == -1
-    || cli_arg(parsed, "recipient_sid", &their_sidhex, str_is_subscriber_id, "") == -1
+    || cli_arg(parsed, "recipient_sid", &their_sidhex, str_is_subscriber_id, alloca_tohex_sid_t(SID_BROADCAST)) == -1
     || cli_arg(parsed, "payload", &message, NULL, "") == -1)
     return -1;
   
