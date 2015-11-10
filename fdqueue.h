@@ -114,7 +114,7 @@ struct sched_ent{
 #define ALARM_STRUCT(X) _sched_##X
 #define DECLARE_ALARM(X) \
   extern struct sched_ent ALARM_STRUCT(X); \
-  void X(struct sched_ent *);
+  void X(struct sched_ent *)
 
 #define DEFINE_ALARM(X) \
   void X(struct sched_ent *); \
@@ -166,7 +166,6 @@ unsigned fd_depth();
 
 #define OUT() fd_func_exit(__HERE__, &_this_call)
 #define RETURN(X) do { OUT(); return (X); } while (0)
-#define RETURNNULL(X) do { X; OUT(); return (NULL); } while (0)
 #define RETURNVOID do { OUT(); return; } while (0)
 
 DECLARE_ALARM(fd_periodicstats);
