@@ -273,7 +273,7 @@ static void _mover_mem(char *dst, const char *src, size_t len)
  * terminating NUL.
  *
  * @author Andrew Bettison <andrew@servalproject.com>
- */
+ 
 static int _reserve_substring(struct http_request *r, const char **resp, struct substring str)
 {
   size_t len = str.end - str.start;
@@ -281,6 +281,7 @@ static int _reserve_substring(struct http_request *r, const char **resp, struct 
   assert(strnchr(str.start, len, '\0') == NULL);
   return _reserve(r, resp, str.start, len, _mover_mem);
 }
+*/
 
 /* The same as _reserve(), but takes a NUL-terminated string as a source argument instead of a
  * substring.
@@ -755,23 +756,27 @@ static int _parse_origin(struct http_request *r, struct http_origin *origin, siz
     r->cursor = end;
     return 1;
   }
-  strcpy(origin->hostname, "");
+  if (_skip_literal(r, "localhost")) {
+    strcpy(origin->hostname, "localhost");
+  } else if (_skip_literal(r, "127.0.0.1")) {
+    strcpy(origin->hostname, "127.0.0.1");
+  } else {
+	IDEBUGF(r->debug, "Ignoring HTTP Origin with unsupported URI scheme: %s", alloca_toprint(50, start, header_bytes));
+	r->cursor = end;
+	return 1;
+  }
   origin->port = 0;
-  struct substring hostname;
-  if (_skip_word_printable(r, &hostname, '/') > 0) {
-    const char *port = hostname.end - 1;
-    while (port > hostname.start && isdigit(*port))
+  struct substring portstring;
+  if (_skip_word_printable(r, &portstring, '/') > 0) {
+    const char *port = portstring.end - 1;
+    while (port > portstring.start && isdigit(*port))
       --port;
-    if (port >= hostname.start && *port == ':' && port < hostname.end - 1) {
+    if (port >= portstring.start && *port == ':' && port < portstring.end - 1) {
       const char *e = NULL;
       if (port && port + 1 < r->cursor && str_to_uint16(port + 1, 10, &origin->port, &e)) {
-	assert(e == r->cursor);
-	hostname.end = port;
+    	  assert(e == r->cursor);
       }
     }
-    assert(hostname.end > hostname.start);
-    if (!_reserve_substring(r, (const char **) &origin->hostname, hostname))
-      return 0; // error
   }
   _skip_literal(r, "/");
   return 1;
@@ -2108,8 +2113,8 @@ static int _render_response(struct http_request *r)
   if (hr.header.content_length != CONTENT_LENGTH_UNKNOWN)
     strbuf_sprintf(sb, "Content-Length: %"PRIhttp_size_t"\r\n", hr.header.content_length);
   
-  // if (hr.header.allow_origin)
-  //   strbuf_sprintf(sb, "Access-Control-Allow-Origin: %s\r\n", (char *) hr.header.allow_origin);
+  if (hr.header.allow_origin.scheme[0] && hr.header.allow_origin.hostname[0] && hr.header.allow_origin.port > 0)
+     strbuf_sprintf(sb, "Access-Control-Allow-Origin: %s://%s:%i\r\n", hr.header.allow_origin.scheme, hr.header.allow_origin.hostname, hr.header.allow_origin.port);
   if (hr.header.allow_methods)
     strbuf_sprintf(sb, "Access-Control-Allow-Methods: %s\r\n", hr.header.allow_methods);
   if (hr.header.allow_headers)
