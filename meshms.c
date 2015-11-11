@@ -728,10 +728,10 @@ enum meshms_status meshms_conversations_list(const sid_t *my_sid, const sid_t *t
   rhizome_manifest *m = rhizome_new_manifest();
   if (!m)
     goto end;
-  if (meshms_failed(status = get_my_conversation_bundle(my_sid, m)))
+  if (cmp_sid_t(their_sid, &SID_BROADCAST) && meshms_failed(status = get_my_conversation_bundle(my_sid, m)))
     goto end;
   // read conversations payload
-  if (meshms_failed(status = read_known_conversations(m, their_sid, conv)))
+  if (cmp_sid_t(their_sid, &SID_BROADCAST) && meshms_failed(status = read_known_conversations(m, their_sid, conv)))
     goto end;
   if (meshms_failed(status = get_database_conversations(my_sid, their_sid, conv)))
     goto end;
