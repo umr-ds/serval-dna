@@ -35,7 +35,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  * On Android systems, the INSTANCE_PATH macro is set in Android.mk, so Android builds of servald
  * always use an instance path and never fall back to FHS paths.
  */
-#ifdef ANDROID
+#if defined(ANDROID) || defined(IOS)
 # ifndef INSTANCE_PATH
 #  error Must set INSTANCE_PATH macro on Android systems
 # endif
