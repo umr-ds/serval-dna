@@ -5,5 +5,9 @@ RHIZOME_STORE_PATH=$(./servald config paths | grep RHIZOME_STORE_PATH | awk 'BEG
 echo "Stopping servald..."
 ./servald stop
 
-echo "Purging $RHIZOME_STORE_PATH..."
-rm -rf "$RHIZOME_STORE_PATH"
+echo "Trying to purge $RHIZOME_STORE_PATH..."
+read -p "Continue (y/n)? " choice
+case "$choice" in 
+  y|Y ) rm -rf "$RHIZOME_STORE_PATH";;
+  * ) exit 1;;
+esac
