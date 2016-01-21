@@ -69,13 +69,38 @@ static enum meshms_status get_my_conversation_bundle(const sid_t *my_sidp, rhizo
   if (m->haveSecret == NEW_BUNDLE_ID) {
     rhizome_manifest_set_service(m, RHIZOME_SERVICE_FILE);
     rhizome_manifest_set_name(m, "");
-    if (rhizome_fill_manifest(m, NULL, my_sidp) != NULL)
-      return WHY("Invalid conversation manifest");
+    struct rhizome_bundle_result result = rhizome_fill_manifest(m, NULL, my_sidp);
+    switch (result.status) {
+    case RHIZOME_BUNDLE_STATUS_NEW:
+    case RHIZOME_BUNDLE_STATUS_SAME:
+    case RHIZOME_BUNDLE_STATUS_DUPLICATE:
+      break;
+    case RHIZOME_BUNDLE_STATUS_ERROR:
+    case RHIZOME_BUNDLE_STATUS_INVALID:
+    case RHIZOME_BUNDLE_STATUS_INCONSISTENT:
+      WHYF("Error creating conversation manifest: %s", alloca_rhizome_bundle_result(result));
+      rhizome_bundle_result_free(&result);
+      return MESHMS_STATUS_ERROR;
+    case RHIZOME_BUNDLE_STATUS_BUSY:
+      // TODO
+    case RHIZOME_BUNDLE_STATUS_OLD:
+    case RHIZOME_BUNDLE_STATUS_FAKE:
+    case RHIZOME_BUNDLE_STATUS_NO_ROOM:
+    case RHIZOME_BUNDLE_STATUS_MANIFEST_TOO_BIG:
+      WARNF("Cannot create conversation manifest: %s", alloca_rhizome_bundle_result(result));
+      rhizome_bundle_result_free(&result);
+      return MESHMS_STATUS_PROTOCOL_FAULT;
+    case RHIZOME_BUNDLE_STATUS_READONLY:
+      INFOF("Cannot create conversation manifest: %s", alloca_rhizome_bundle_result(result));
+      rhizome_bundle_result_free(&result);
+      return MESHMS_STATUS_SID_LOCKED;
+    }
     // The 'meshms' automated test depends on this message; do not alter.
     DEBUGF(meshms, "MESHMS CONVERSATION BUNDLE bid=%s secret=%s",
 	   alloca_tohex_rhizome_bid_t(m->cryptoSignPublic),
 	   alloca_tohex(m->cryptoSignSecret, RHIZOME_BUNDLE_KEY_BYTES)
 	  );
+    rhizome_bundle_result_free(&result);
   } else {
     if (strcmp(m->service, RHIZOME_SERVICE_FILE) != 0) {
       WARNF("Invalid conversations manifest, service=%s but should be %s", m->service, RHIZOME_SERVICE_FILE);
@@ -188,7 +213,7 @@ static enum meshms_status find_or_create_conv(const sid_t *my_sid, const sid_t *
   return status;
 }
 
-static int create_ply(const sid_t *my_sid, struct meshms_conversations *conv, rhizome_manifest *m)
+static enum meshms_status create_ply(const sid_t *my_sid, struct meshms_conversations *conv, rhizome_manifest *m)
 {
   DEBUGF(meshms, "Creating ply for my_sid=%s them=%s",
 	 alloca_tohex_sid_t(conv->them),
@@ -199,8 +224,33 @@ static int create_ply(const sid_t *my_sid, struct meshms_conversations *conv, rh
   rhizome_manifest_set_recipient(m, &conv->them);
   rhizome_manifest_set_filesize(m, 0);
   rhizome_manifest_set_tail(m, 0);
-  if (rhizome_fill_manifest(m, NULL, my_sid) != NULL)
-    return -1;
+  struct rhizome_bundle_result result = rhizome_fill_manifest(m, NULL, my_sid);
+  switch (result.status) {
+  case RHIZOME_BUNDLE_STATUS_NEW:
+  case RHIZOME_BUNDLE_STATUS_SAME:
+  case RHIZOME_BUNDLE_STATUS_DUPLICATE:
+    break;
+  case RHIZOME_BUNDLE_STATUS_ERROR:
+  case RHIZOME_BUNDLE_STATUS_INVALID:
+  case RHIZOME_BUNDLE_STATUS_INCONSISTENT:
+    WHYF("Error creating ply manifest: %s", alloca_rhizome_bundle_result(result));
+    rhizome_bundle_result_free(&result);
+    return MESHMS_STATUS_ERROR;
+  case RHIZOME_BUNDLE_STATUS_BUSY:
+    // TODO
+  case RHIZOME_BUNDLE_STATUS_OLD:
+  case RHIZOME_BUNDLE_STATUS_FAKE:
+  case RHIZOME_BUNDLE_STATUS_NO_ROOM:
+  case RHIZOME_BUNDLE_STATUS_MANIFEST_TOO_BIG:
+    WARNF("Cannot create ply manifest: %s", alloca_rhizome_bundle_result(result));
+    rhizome_bundle_result_free(&result);
+    return MESHMS_STATUS_PROTOCOL_FAULT;
+  case RHIZOME_BUNDLE_STATUS_READONLY:
+    INFOF("Cannot create ply manifest: %s", alloca_rhizome_bundle_result(result));
+    rhizome_bundle_result_free(&result);
+    return MESHMS_STATUS_SID_LOCKED;
+  }
+  rhizome_bundle_result_free(&result);
   assert(m->haveSecret);
   assert(m->payloadEncryption == PAYLOAD_ENCRYPTED);
   conv->my_ply.bundle_id = m->cryptoSignPublic;
@@ -350,18 +400,27 @@ static enum meshms_status append_meshms_buffer(const sid_t *my_sid, struct meshm
       status = MESHMS_STATUS_PROTOCOL_FAULT;
       goto end;
     }
-  } else if (create_ply(my_sid, conv, m) == -1) {
-    goto end;
+  } else {
+    status = create_ply(my_sid, conv, m);
+    switch (status) {
+    case MESHMS_STATUS_OK:
+      break;
+    case MESHMS_STATUS_ERROR:
+    case MESHMS_STATUS_UPDATED:
+    case MESHMS_STATUS_SID_LOCKED:
+    case MESHMS_STATUS_PROTOCOL_FAULT:
+      goto end;
+    }
   }
   assert(m->haveSecret);
   assert(m->authorship == AUTHOR_AUTHENTIC);
   enum rhizome_payload_status pstatus = rhizome_append_journal_buffer(m, 0, buffer, len);
-  if (pstatus != RHIZOME_PAYLOAD_STATUS_NEW)
+  if (pstatus != RHIZOME_PAYLOAD_STATUS_NEW) {
+    status = MESHMS_STATUS_ERROR;
     goto end;
-  
-  enum rhizome_bundle_status bstatus = rhizome_manifest_finalise(m, &mout, 1);
-  DEBUGF(meshms, "bstatus=%d", bstatus);
-  switch (bstatus) {
+  }
+  struct rhizome_bundle_result result = rhizome_manifest_finalise(m, &mout, 1);
+  switch (result.status) {
     case RHIZOME_BUNDLE_STATUS_ERROR:
       // error has already been logged
       status = MESHMS_STATUS_ERROR;
@@ -373,24 +432,33 @@ static enum meshms_status append_meshms_buffer(const sid_t *my_sid, struct meshm
     case RHIZOME_BUNDLE_STATUS_DUPLICATE:
     case RHIZOME_BUNDLE_STATUS_OLD:
       status = MESHMS_STATUS_PROTOCOL_FAULT;
-      WHYF("MeshMS ply manifest (version=%"PRIu64") gazumped by Rhizome store (version=%"PRIu64")",
+      WARNF("MeshMS ply manifest (version=%"PRIu64") gazumped by Rhizome store (version=%"PRIu64")",
 	  m->version, mout->version);
+      break;
+    case RHIZOME_BUNDLE_STATUS_NO_ROOM:
+      status = MESHMS_STATUS_PROTOCOL_FAULT;
+      WARNF("MeshMS ply manifest evicted from store");
       break;
     case RHIZOME_BUNDLE_STATUS_INCONSISTENT:
       status = MESHMS_STATUS_PROTOCOL_FAULT;
-      WHYF("MeshMS ply manifest not consistent with payload");
+      WARNF("MeshMS ply manifest not consistent with payload");
       break;
     case RHIZOME_BUNDLE_STATUS_FAKE:
+    case RHIZOME_BUNDLE_STATUS_READONLY:
       status = MESHMS_STATUS_PROTOCOL_FAULT;
-      WHYF("MeshMS ply manifest is not signed");
+      WARNF("MeshMS ply manifest is not signed");
       break;
     case RHIZOME_BUNDLE_STATUS_INVALID:
+    case RHIZOME_BUNDLE_STATUS_MANIFEST_TOO_BIG:
       status = MESHMS_STATUS_PROTOCOL_FAULT;
-      WHYF("MeshMS ply manifest is invalid");
+      WARNF("MeshMS ply manifest is invalid");
       break;
-    default:
-      FATALF("bstatus=%d", bstatus);
+    case RHIZOME_BUNDLE_STATUS_BUSY:
+      status = MESHMS_STATUS_PROTOCOL_FAULT;
+      WARNF("MeshMS ply manifest not stored due to database locking");
+      break;
   }
+  rhizome_bundle_result_free(&result);
 end:
   if (mout && mout!=m)
     rhizome_manifest_free(mout);
@@ -681,8 +749,8 @@ static enum meshms_status write_known_conversations(rhizome_manifest *m, struct 
     goto end;
   rhizome_manifest_set_filehash(m, &write.id);
   
-  enum rhizome_bundle_status bstatus = rhizome_manifest_finalise(m, &mout, 1);
-  switch (bstatus) {
+  struct rhizome_bundle_result result = rhizome_manifest_finalise(m, &mout, 1);
+  switch (result.status) {
     case RHIZOME_BUNDLE_STATUS_ERROR:
       // error is already logged
       break;
@@ -692,25 +760,34 @@ static enum meshms_status write_known_conversations(rhizome_manifest *m, struct 
     case RHIZOME_BUNDLE_STATUS_SAME:
     case RHIZOME_BUNDLE_STATUS_DUPLICATE:
     case RHIZOME_BUNDLE_STATUS_OLD:
-      WHYF("MeshMS conversation manifest (version=%"PRIu64") gazumped by Rhizome store (version=%"PRIu64")",
-	  m->version, mout->version);
       status = MESHMS_STATUS_PROTOCOL_FAULT;
+      WARNF("MeshMS conversation manifest (version=%"PRIu64") gazumped by Rhizome store (version=%"PRIu64")",
+	  m->version, mout->version);
+      break;
+    case RHIZOME_BUNDLE_STATUS_NO_ROOM:
+      status = MESHMS_STATUS_PROTOCOL_FAULT;
+      WARNF("MeshMS ply manifest evicted from store");
       break;
     case RHIZOME_BUNDLE_STATUS_INCONSISTENT:
-      WHY("MeshMS conversation manifest not consistent with payload");
       status = MESHMS_STATUS_PROTOCOL_FAULT;
+      WARN("MeshMS conversation manifest not consistent with payload");
       break;
     case RHIZOME_BUNDLE_STATUS_FAKE:
-      WHY("MeshMS conversation manifest is not signed");
+    case RHIZOME_BUNDLE_STATUS_READONLY:
       status = MESHMS_STATUS_PROTOCOL_FAULT;
+      WARN("MeshMS conversation manifest is not signed");
       break;
     case RHIZOME_BUNDLE_STATUS_INVALID:
-      WHY("MeshMS conversation manifest is invalid");
+    case RHIZOME_BUNDLE_STATUS_MANIFEST_TOO_BIG:
       status = MESHMS_STATUS_PROTOCOL_FAULT;
+      WARN("MeshMS conversation manifest is invalid");
       break;
-    default:
-      FATALF("bstatus=%d", bstatus);
+    case RHIZOME_BUNDLE_STATUS_BUSY:
+      status = MESHMS_STATUS_PROTOCOL_FAULT;
+      WARNF("MeshMS conversation manifest not stored due to database locking");
+      break;
   }
+  rhizome_bundle_result_free(&result);
 end:
   if (meshms_failed(status))
     rhizome_fail_write(&write);

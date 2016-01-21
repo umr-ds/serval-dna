@@ -399,6 +399,7 @@ static uint64_t max_token=0;
 static void sync_send_response(struct subscriber *dest, int forwards, uint64_t token, int max_count)
 {
   IN();
+    
   if (max_count == 0 || max_count > BARS_PER_RESPONSE)
     max_count = BARS_PER_RESPONSE;
 
@@ -447,11 +448,11 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
     sprintf(sqlstring, "%s rowid <= ? ORDER BY rowid DESC", sqlstring);
   }
 
-//  WARN(sqlstring);
-
   statement = sqlite_prepare(&retry, sqlstring);
-  if (!statement)
+  if (!statement) {
+    OUT();
     return;
+  }
 
   // Bind Parameters
   int bind_p = 1;

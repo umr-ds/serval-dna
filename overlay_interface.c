@@ -58,6 +58,7 @@ struct profile_total sock_any_stats;
 
 static void overlay_interface_poll(struct sched_ent *alarm);
 static int inet_up_count=0;
+static void rescan_soon();
 
 void overlay_interface_close(overlay_interface *interface)
 {
@@ -378,12 +379,8 @@ overlay_interface_read_any(struct sched_ent *alarm)
     
     /* Read only one UDP packet per call to share resources more fairly, and also
      enable stats to accurately count packets received */
-    plen = recvwithttl(alarm->poll.fd, packet, sizeof(packet), &recvttl, &recvaddr);
+    plen = recv_message(alarm->poll.fd, &recvaddr, &recvttl, packet, sizeof(packet));
     if (plen == -1) {
-      WHYF_perror("recvwithttl(%d,%p,%zu,&%d,%p(%s))",
-	    alarm->poll.fd, packet, sizeof packet, recvttl,
-	    &recvaddr, alloca_socket_address(&recvaddr)
-	  );
       unwatch(alarm);
       close(alarm->poll.fd);
       return;
@@ -681,12 +678,8 @@ static void interface_read_dgram(struct overlay_interface *interface)
   /* Read only one UDP packet per call to share resources more fairly, and also
    enable stats to accurately count packets received */
   int recvttl=1;
-  plen = recvwithttl(interface->alarm.poll.fd,packet, sizeof(packet), &recvttl, &recvaddr);
+  plen = recv_message(interface->alarm.poll.fd, &recvaddr, &recvttl, packet, sizeof(packet));
   if (plen == -1) {
-    WHYF_perror("recvwithttl(%d,%p,%zu,&%d,%p(%s))",
-	  interface->alarm.poll.fd, packet, sizeof packet, recvttl,
-	  &recvaddr, alloca_socket_address(&recvaddr)
-	);
     overlay_interface_close(interface);
     return;
   }
@@ -1057,18 +1050,23 @@ int overlay_broadcast_ensemble(struct network_destination *destination, struct o
 		  bytes, (size_t)len, 0, 
 		  &destination->address.addr, destination->address.addrlen);
 	if (sent == -1){
-	  if (errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=ENOENT && errno!=ENOTDIR)
+	  if (errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=ENOENT && errno!=ENOTDIR){
 	    WHYF_perror("sendto(fd=%d,len=%zu,addr=%s) on interface %s",
 		interface->alarm.poll.fd,
 		(size_t)len,
 		alloca_socket_address(&destination->address),
 		interface->name
 	      );
-	  // close the interface if we had any error while sending broadcast packets,
-	  // unicast packets should not bring the interface down
-	  // TODO mark unicast destination as failed?
-	  if (destination == interface->destination)
-	    overlay_interface_close(interface);
+	    
+	    // if we had any error while sending broadcast packets,
+	    // it could be because the interface is coming down
+	    // or there might be some socket error that we can't fix.
+	    // So bring the interface down, and scan for network changes soon
+	    if (destination == interface->destination){
+	      overlay_interface_close(interface);
+	      rescan_soon();
+	    }
+	  }
 	  ob_free(buffer);
 	  return -1;
 	}
@@ -1171,7 +1169,7 @@ void netlink_poll(struct sched_ent *alarm)
   DEBUGF(overlayinterfaces, "recv(%d) len %u", alarm->poll.fd, len);
     
   struct nlmsghdr *nlh = (struct nlmsghdr *)buff;
-  for (nlh = (struct nlmsghdr *)buff; (NLMSG_OK (nlh, len)) && (nlh->nlmsg_type != NLMSG_DONE); nlh = NLMSG_NEXT(nlh, len)){
+  for (nlh = (struct nlmsghdr *)buff; (NLMSG_OK (nlh, (size_t)len)) && (nlh->nlmsg_type != NLMSG_DONE); nlh = NLMSG_NEXT(nlh, len)){
     
     switch(nlh->nlmsg_type){
       case RTM_NEWADDR:
@@ -1278,7 +1276,7 @@ static int netlink_socket()
   return sock;
 }
 
-static int netlink_send_get(int fd)
+static int netlink_send_get()
 {
   struct {
     struct nlmsghdr n;
@@ -1293,6 +1291,9 @@ static int netlink_send_get(int fd)
   struct rtattr *rta = (struct rtattr *)(((char *)&req) + NLMSG_ALIGN(req.n.nlmsg_len));
   rta->rta_len = RTA_LENGTH(4);
   
+  int fd = ALARM_STRUCT(netlink_poll).poll.fd;
+  if (fd<0)
+    return -1;
   if (send(fd, &req, req.n.nlmsg_len, 0)<0)
     return WHYF_perror("send(%d)", fd);
   
@@ -1314,7 +1315,7 @@ static int netlink_init()
     watch(alarm);
   }
   
-  return netlink_send_get(alarm->poll.fd);
+  return 0;
 }
 
 #else
@@ -1405,6 +1406,19 @@ static void file_interface_init(const struct config_network_interface *ifconfig)
   overlay_interface_init(ifconfig->file, &addr, &netmask, &broadcast, ifconfig);
 }
 
+static void rescan_soon(){
+#ifdef HAVE_LINUX_NETLINK_H
+  // start listening for network changes & request current interface addresses
+  if (netlink_init()<0)
+    return;
+  netlink_send_get();
+#else
+  // re-check all interfaces periodically
+  time_ms_t now = gettime_ms();
+  RESCHEDULE(&ALARM_STRUCT(overlay_interface_discover), now, now, now);
+#endif
+}
+
 void overlay_interface_config_change()
 {
   unsigned i;
@@ -1448,16 +1462,8 @@ void overlay_interface_config_change()
     file_interface_init(ifconfig);
   }
   
-  if (real_interface){
-#ifdef HAVE_LINUX_NETLINK_H
-    // start listening for network changes & request current interface addresses
-    netlink_init();
-#else
-    // re-check all interfaces periodically
-    time_ms_t now = gettime_ms();
-    RESCHEDULE(&ALARM_STRUCT(overlay_interface_discover), now, now, now);
-#endif
-  }
+  if (real_interface)
+    rescan_soon();
 }
 
 void logServalPacket(int level, struct __sourceloc __whence, const char *message, const unsigned char *packet, size_t len) {

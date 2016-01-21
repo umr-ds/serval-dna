@@ -32,6 +32,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #   endif
 #endif
 
+#include "features.h"
 #include "whence.h"
 
 struct socket_address{
@@ -48,7 +49,7 @@ struct socket_address{
 /* Basic socket operations.
  */
 int _make_local_sockaddr(struct __sourceloc, struct socket_address *addr, const char *fmt, ...)
-    __attribute__((format(printf, 3, 4)));
+    __attribute__((__ATTRIBUTE_format(printf, 3, 4)));
 int _esocket(struct __sourceloc, int domain, int type, int protocol);
 int _socket_bind(struct __sourceloc, int sock, const struct socket_address *addr);
 int _socket_connect(struct __sourceloc, int sock, const struct socket_address *addr);
@@ -80,11 +81,11 @@ int append_fragment(struct fragmented_data *data, const uint8_t *payload, size_t
 size_t copy_fragment(struct fragmented_data *src, uint8_t *dest, size_t length);
 
 ssize_t _send_message(struct __sourceloc, int fd, const struct socket_address *address, const struct fragmented_data *data);
-ssize_t _recv_message(struct __sourceloc, int fd, struct socket_address *address, struct fragmented_data *data);
+ssize_t _recv_message_frag(struct __sourceloc, int fd, struct socket_address *address, int *ttl, struct fragmented_data *data);
+ssize_t _recv_message(struct __sourceloc __whence, int fd, struct socket_address *address, int *ttl, unsigned char *buffer, size_t buflen);
 
-#define send_message(fd, address, data)    _send_message(__WHENCE__, (fd), (address), (data))
-#define recv_message(fd, address, data)    _recv_message(__WHENCE__, (fd), (address), (data))
-
-ssize_t recvwithttl(int sock, unsigned char *buffer, size_t bufferlen, int *ttl, struct socket_address *recvaddr);
+#define send_message(fd, address, data)      _send_message(__WHENCE__, (fd), (address), (data))
+#define recv_message_frag(fd, address, ttl, data) _recv_message(__WHENCE__, (fd), (address), (ttl), (data))
+#define recv_message(fd, address, ttl, buf, len) _recv_message(__WHENCE__, (fd), (address), (ttl), (buf), (len))
 
 #endif // __SERVAL_DNA___SOCKET_H
