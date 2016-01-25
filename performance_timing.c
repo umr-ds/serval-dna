@@ -257,8 +257,8 @@ int fd_func_exit(struct __sourceloc __whence, struct call_stats *this_call)
   // a SEGV.
   DEBUGF(profiling, "%s called from %s() %s:%d",
 	  __FUNCTION__,__whence.function,__whence.file,__whence.line); 
-  if (current_call != this_call)
-    FATAL("performance timing stack trace corrupted");
+//  if (current_call != this_call)
+//    FATAL("performance timing stack trace corrupted");
   
   time_ms_t now = gettime_ms();
   time_ms_t elapsed = now - this_call->enter_time;

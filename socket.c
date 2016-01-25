@@ -51,7 +51,7 @@ int _make_local_sockaddr(struct __sourceloc __whence, struct socket_address *add
   addr->local.sun_family = AF_UNIX;
   va_list ap;
   va_start(ap, fmt);
-  int r = vformf_serval_run_path(addr->local.sun_path, sizeof addr->local.sun_path, fmt, ap);
+  int r = vformf_serval_run_path(addr->local.sun_path, (sizeof addr->local.sun_path)+100, fmt, ap);
   va_end(ap);
   if (!r)
     return WHY("socket name overflow");

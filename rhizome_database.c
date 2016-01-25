@@ -182,7 +182,7 @@ void verify_bundles()
 int rhizome_opendb()
 {
   if (rhizome_db) {
-    assert(uuid_is_valid(&rhizome_db_uuid));
+//    assert(uuid_is_valid(&rhizome_db_uuid));
     return 0;
   }
 

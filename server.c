@@ -62,9 +62,9 @@ void server_shutdown_check(struct sched_ent *alarm);
 
 void cli_cleanup(){
   /* clean up after ourselves */
-  rhizome_close_db();
-  free_subscribers();
-  assert(keyring==NULL);
+//  rhizome_close_db();
+//  free_subscribers();
+//  assert(keyring==NULL);
 }
 
 /** Return the PID of the currently running server process, return 0 if there is none.

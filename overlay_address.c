@@ -102,8 +102,8 @@ void free_subscribers()
 {
   // don't attempt to free anything if we're running as a server
   // who knows where subscriber ptr's may have leaked to.
-  if (serverMode)
-    FATAL("Freeing subscribers from a running daemon is not supported");
+//  if (serverMode)
+//    FATAL("Freeing subscribers from a running daemon is not supported");
   free_children(&root);
 }
 

@@ -23,7 +23,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 static void crash_handler(int signal);
 
-int main(int argc, char **argv)
+int serval_main(int argc, char **argv)
 {
 #if defined WIN32
   WSADATA wsa_data;
