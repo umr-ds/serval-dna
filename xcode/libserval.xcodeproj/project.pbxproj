@@ -1943,8 +1943,8 @@
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"SERVALD_VERSION=\"\\\"servald-xcode\\\"\"",
 					"SERVALD_COPYRIGHT=\"\\\"xxx\\\"\"",
-					"SYSCONFDIR=\"\\\"/usr/local/etc\\\"\"",
-					"LOCALSTATEDIR=\"\\\"/usr/local/var\\\"\"",
+					"SYSCONFDIR=\"\\\"$(SRCROOT)/etc\\\"\"",
+					"LOCALSTATEDIR=\"\\\"$(SRCROOT)/var\\\"\"",
 				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
@@ -1997,8 +1997,8 @@
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"SERVALD_VERSION=\"\\\"servald-xcode\\\"\"",
 					"SERVALD_COPYRIGHT=\"\\\"xxx\\\"\"",
-					"SYSCONFDIR=\"\\\"/usr/local/etc\\\"\"",
-					"LOCALSTATEDIR=\"\\\"/usr/local/var\\\"\"",
+					"SYSCONFDIR=\"\\\"$(SRCROOT)/etc\\\"\"",
+					"LOCALSTATEDIR=\"\\\"$(SRCROOT)/var\\\"\"",
 				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
