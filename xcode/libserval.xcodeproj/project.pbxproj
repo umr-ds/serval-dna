@@ -112,7 +112,6 @@
 		475DFC301C6528FC00376A47 /* log_util.c in Sources */ = {isa = PBXBuildFile; fileRef = 475DFBCC1C6528FC00376A47 /* log_util.c */; };
 		475DFC321C6528FC00376A47 /* logMessage.c in Sources */ = {isa = PBXBuildFile; fileRef = 475DFBCE1C6528FC00376A47 /* logMessage.c */; };
 		475DFC331C6528FC00376A47 /* lsif.c in Sources */ = {isa = PBXBuildFile; fileRef = 475DFBCF1C6528FC00376A47 /* lsif.c */; };
-		475DFC341C6528FC00376A47 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = 475DFBD01C6528FC00376A47 /* main.c */; };
 		475DFC351C6528FC00376A47 /* mdp_client.c in Sources */ = {isa = PBXBuildFile; fileRef = 475DFBD11C6528FC00376A47 /* mdp_client.c */; };
 		475DFC361C6528FC00376A47 /* mdp_filter.c in Sources */ = {isa = PBXBuildFile; fileRef = 475DFBD21C6528FC00376A47 /* mdp_filter.c */; };
 		475DFC371C6528FC00376A47 /* mem.c in Sources */ = {isa = PBXBuildFile; fileRef = 475DFBD31C6528FC00376A47 /* mem.c */; };
@@ -338,6 +337,83 @@
 		475DFD381C65328E00376A47 /* serval_packetvisualise.c in Sources */ = {isa = PBXBuildFile; fileRef = 475DFD361C65328E00376A47 /* serval_packetvisualise.c */; };
 		475DFD3A1C65334F00376A47 /* log.c in Sources */ = {isa = PBXBuildFile; fileRef = 475DFD391C65334F00376A47 /* log.c */; };
 		475DFD3B1C65334F00376A47 /* log.c in Sources */ = {isa = PBXBuildFile; fileRef = 475DFD391C65334F00376A47 /* log.c */; };
+		478EEBF91C6544D60062E08E /* cli.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF95C1C6527A900376A47 /* cli.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEBFA1C6544D60062E08E /* commandline.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF95D1C6527A900376A47 /* commandline.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEBFB1C6544D60062E08E /* conf_schema.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF95E1C6527A900376A47 /* conf_schema.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEBFC1C6544D60062E08E /* conf.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF95F1C6527A900376A47 /* conf.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEBFD1C6544D60062E08E /* console.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9601C6527A900376A47 /* console.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEBFE1C6544D60062E08E /* constants.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9611C6527A900376A47 /* constants.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEBFF1C6544D60062E08E /* crypto.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9621C6527A900376A47 /* crypto.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC001C6544D60062E08E /* dataformats.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9631C6527A900376A47 /* dataformats.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC011C6544D60062E08E /* debug.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9641C6527A900376A47 /* debug.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC021C6544D60062E08E /* fdqueue.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9651C6527A900376A47 /* fdqueue.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC031C6544D60062E08E /* features.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9661C6527A900376A47 /* features.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC041C6544D60062E08E /* fifo.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9671C6527A900376A47 /* fifo.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC051C6544D60062E08E /* golay.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9681C6527A900376A47 /* golay.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC061C6544D60062E08E /* http_server.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9691C6527A900376A47 /* http_server.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC071C6544D60062E08E /* httpd.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF96A1C6527A900376A47 /* httpd.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC081C6544D60062E08E /* instance.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF96B1C6527A900376A47 /* instance.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC091C6544D60062E08E /* keyring.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF96C1C6527A900376A47 /* keyring.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC0A1C6544D60062E08E /* limit.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF96D1C6527A900376A47 /* limit.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC0B1C6544D60062E08E /* log.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF96E1C6527A900376A47 /* log.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC0C1C6544D60062E08E /* mdp_client.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF96F1C6527A900376A47 /* mdp_client.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC0D1C6544D60062E08E /* mem.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9701C6527A900376A47 /* mem.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC0E1C6544D60062E08E /* meshms.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9711C6527A900376A47 /* meshms.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC0F1C6544D60062E08E /* monitor-client.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9721C6527A900376A47 /* monitor-client.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC101C6544D60062E08E /* msp_client.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9731C6527A900376A47 /* msp_client.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC111C6544D60062E08E /* net.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9741C6527A900376A47 /* net.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC121C6544D60062E08E /* os.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9751C6527A900376A47 /* os.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC131C6544D60062E08E /* overlay_address.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9761C6527A900376A47 /* overlay_address.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC141C6544D60062E08E /* overlay_buffer.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9771C6527A900376A47 /* overlay_buffer.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC151C6544D60062E08E /* overlay_interface.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9781C6527A900376A47 /* overlay_interface.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC161C6544D60062E08E /* overlay_packet.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9791C6527A900376A47 /* overlay_packet.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC171C6544D60062E08E /* radio_link.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF97A1C6527A900376A47 /* radio_link.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC181C6544D60062E08E /* rhizome_types.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF97B1C6527A900376A47 /* rhizome_types.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC191C6544D60062E08E /* rhizome.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF97C1C6527A900376A47 /* rhizome.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC1A1C6544D60062E08E /* rotbuf.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF97D1C6527A900376A47 /* rotbuf.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC1B1C6544D60062E08E /* route_link.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF97E1C6527A900376A47 /* route_link.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC1C1C6544D60062E08E /* section.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF97F1C6527A900376A47 /* section.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC1D1C6544D60062E08E /* serval_types.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9801C6527A900376A47 /* serval_types.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC1E1C6544D60062E08E /* serval.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9811C6527A900376A47 /* serval.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC1F1C6544D60062E08E /* server.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9821C6527A900376A47 /* server.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC201C6544D60062E08E /* sha2.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9831C6527A900376A47 /* sha2.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC211C6544D60062E08E /* sighandlers.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9841C6527A900376A47 /* sighandlers.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC221C6544D60062E08E /* simulator.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9851C6527A900376A47 /* simulator.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC231C6544D60062E08E /* socket.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9861C6527A900376A47 /* socket.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC241C6544D60062E08E /* str.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9871C6527A900376A47 /* str.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC251C6544D60062E08E /* strbuf_helpers.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9881C6527A900376A47 /* strbuf_helpers.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC261C6544D60062E08E /* strbuf.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9891C6527A900376A47 /* strbuf.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC271C6544D60062E08E /* strlcpy.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF98A1C6527A900376A47 /* strlcpy.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC281C6544D60062E08E /* trigger.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF98B1C6527A900376A47 /* trigger.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC291C6544D60062E08E /* uuid.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF98C1C6527A900376A47 /* uuid.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC2A1C6544D60062E08E /* whence.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF98D1C6527A900376A47 /* whence.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC2B1C6544D60062E08E /* xprintf.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF98E1C6527A900376A47 /* xprintf.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC2C1C6549020062E08E /* confdefs.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF4AF1C65217F00376A47 /* confdefs.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		478EEC471C654A4C0062E08E /* api.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9BB1C65289D00376A47 /* api.h */; };
+		478EEC481C654A4C0062E08E /* crypto_auth_hmacsha256.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9BC1C65289D00376A47 /* crypto_auth_hmacsha256.h */; };
+		478EEC491C654A4C0062E08E /* crypto_auth_hmacsha512256.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9BD1C65289D00376A47 /* crypto_auth_hmacsha512256.h */; };
+		478EEC4A1C654A4C0062E08E /* crypto_box_curve25519xsalsa20poly1305.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9BE1C65289D00376A47 /* crypto_box_curve25519xsalsa20poly1305.h */; };
+		478EEC4B1C654A4C0062E08E /* crypto_core_hsalsa20.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9BF1C65289D00376A47 /* crypto_core_hsalsa20.h */; };
+		478EEC4C1C654A4C0062E08E /* crypto_core_salsa20.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9C01C65289D00376A47 /* crypto_core_salsa20.h */; };
+		478EEC4D1C654A4C0062E08E /* crypto_core_salsa2012.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9C11C65289D00376A47 /* crypto_core_salsa2012.h */; };
+		478EEC4E1C654A4C0062E08E /* crypto_core_salsa208.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9C21C65289D00376A47 /* crypto_core_salsa208.h */; };
+		478EEC4F1C654A4C0062E08E /* crypto_hash_sha256.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9C31C65289D00376A47 /* crypto_hash_sha256.h */; };
+		478EEC501C654A4C0062E08E /* crypto_hash_sha512.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9C41C65289D00376A47 /* crypto_hash_sha512.h */; };
+		478EEC511C654A4C0062E08E /* crypto_hashblocks_sha256.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9C51C65289D00376A47 /* crypto_hashblocks_sha256.h */; };
+		478EEC521C654A4C0062E08E /* crypto_hashblocks_sha512.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9C61C65289D00376A47 /* crypto_hashblocks_sha512.h */; };
+		478EEC531C654A4D0062E08E /* crypto_onetimeauth_poly1305.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9C71C65289D00376A47 /* crypto_onetimeauth_poly1305.h */; };
+		478EEC541C654A4D0062E08E /* crypto_scalarmult_curve25519.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9C81C65289D00376A47 /* crypto_scalarmult_curve25519.h */; };
+		478EEC551C654A4D0062E08E /* crypto_secretbox_xsalsa20poly1305.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9C91C65289D00376A47 /* crypto_secretbox_xsalsa20poly1305.h */; };
+		478EEC561C654A4D0062E08E /* crypto_sign_edwards25519sha512batch.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9CA1C65289D00376A47 /* crypto_sign_edwards25519sha512batch.h */; };
+		478EEC571C654A4D0062E08E /* crypto_stream_salsa20.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9CB1C65289D00376A47 /* crypto_stream_salsa20.h */; };
+		478EEC581C654A4D0062E08E /* crypto_stream_salsa2012.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9CC1C65289D00376A47 /* crypto_stream_salsa2012.h */; };
+		478EEC591C654A4D0062E08E /* crypto_stream_salsa208.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9CD1C65289D00376A47 /* crypto_stream_salsa208.h */; };
+		478EEC5A1C654A4D0062E08E /* crypto_stream_xsalsa20.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9CE1C65289D00376A47 /* crypto_stream_xsalsa20.h */; };
+		478EEC5B1C654A4D0062E08E /* crypto_uint32.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9CF1C65289D00376A47 /* crypto_uint32.h */; };
+		478EEC5C1C654A4D0062E08E /* crypto_verify_16.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9D01C65289D00376A47 /* crypto_verify_16.h */; };
+		478EEC5D1C654A4D0062E08E /* crypto_verify_32.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9D11C65289D00376A47 /* crypto_verify_32.h */; };
+		478EEC5E1C654A4D0062E08E /* randombytes.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9D31C65289D00376A47 /* randombytes.h */; };
+		478EEC5F1C654A900062E08E /* nacl.h in Headers */ = {isa = PBXBuildFile; fileRef = 475DF9D21C65289D00376A47 /* nacl.h */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -1359,6 +1435,93 @@
 		};
 /* End PBXGroup section */
 
+/* Begin PBXHeadersBuildPhase section */
+		478EEBF81C6544CA0062E08E /* Headers */ = {
+			isa = PBXHeadersBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				478EEC2C1C6549020062E08E /* confdefs.h in Headers */,
+				478EEC1E1C6544D60062E08E /* serval.h in Headers */,
+				478EEC1D1C6544D60062E08E /* serval_types.h in Headers */,
+				478EEBFE1C6544D60062E08E /* constants.h in Headers */,
+				478EEBF91C6544D60062E08E /* cli.h in Headers */,
+				478EEC211C6544D60062E08E /* sighandlers.h in Headers */,
+				478EEC081C6544D60062E08E /* instance.h in Headers */,
+				478EEC021C6544D60062E08E /* fdqueue.h in Headers */,
+				478EEC0D1C6544D60062E08E /* mem.h in Headers */,
+				478EEC2B1C6544D60062E08E /* xprintf.h in Headers */,
+				478EEC031C6544D60062E08E /* features.h in Headers */,
+				478EEC0B1C6544D60062E08E /* log.h in Headers */,
+				478EEC111C6544D60062E08E /* net.h in Headers */,
+				478EEC121C6544D60062E08E /* os.h in Headers */,
+				478EEC2A1C6544D60062E08E /* whence.h in Headers */,
+				478EEC261C6544D60062E08E /* strbuf.h in Headers */,
+				478EEBFA1C6544D60062E08E /* commandline.h in Headers */,
+				478EEBFB1C6544D60062E08E /* conf_schema.h in Headers */,
+				478EEBFC1C6544D60062E08E /* conf.h in Headers */,
+				478EEBFD1C6544D60062E08E /* console.h in Headers */,
+				478EEBFF1C6544D60062E08E /* crypto.h in Headers */,
+				478EEC001C6544D60062E08E /* dataformats.h in Headers */,
+				478EEC011C6544D60062E08E /* debug.h in Headers */,
+				478EEC041C6544D60062E08E /* fifo.h in Headers */,
+				478EEC051C6544D60062E08E /* golay.h in Headers */,
+				478EEC061C6544D60062E08E /* http_server.h in Headers */,
+				478EEC071C6544D60062E08E /* httpd.h in Headers */,
+				478EEC091C6544D60062E08E /* keyring.h in Headers */,
+				478EEC0A1C6544D60062E08E /* limit.h in Headers */,
+				478EEC0C1C6544D60062E08E /* mdp_client.h in Headers */,
+				478EEC0E1C6544D60062E08E /* meshms.h in Headers */,
+				478EEC0F1C6544D60062E08E /* monitor-client.h in Headers */,
+				478EEC101C6544D60062E08E /* msp_client.h in Headers */,
+				478EEC131C6544D60062E08E /* overlay_address.h in Headers */,
+				478EEC141C6544D60062E08E /* overlay_buffer.h in Headers */,
+				478EEC151C6544D60062E08E /* overlay_interface.h in Headers */,
+				478EEC161C6544D60062E08E /* overlay_packet.h in Headers */,
+				478EEC171C6544D60062E08E /* radio_link.h in Headers */,
+				478EEC181C6544D60062E08E /* rhizome_types.h in Headers */,
+				478EEC191C6544D60062E08E /* rhizome.h in Headers */,
+				478EEC1A1C6544D60062E08E /* rotbuf.h in Headers */,
+				478EEC1B1C6544D60062E08E /* route_link.h in Headers */,
+				478EEC1C1C6544D60062E08E /* section.h in Headers */,
+				478EEC1F1C6544D60062E08E /* server.h in Headers */,
+				478EEC201C6544D60062E08E /* sha2.h in Headers */,
+				478EEC221C6544D60062E08E /* simulator.h in Headers */,
+				478EEC231C6544D60062E08E /* socket.h in Headers */,
+				478EEC241C6544D60062E08E /* str.h in Headers */,
+				478EEC251C6544D60062E08E /* strbuf_helpers.h in Headers */,
+				478EEC271C6544D60062E08E /* strlcpy.h in Headers */,
+				478EEC281C6544D60062E08E /* trigger.h in Headers */,
+				478EEC291C6544D60062E08E /* uuid.h in Headers */,
+				478EEC5F1C654A900062E08E /* nacl.h in Headers */,
+				478EEC471C654A4C0062E08E /* api.h in Headers */,
+				478EEC481C654A4C0062E08E /* crypto_auth_hmacsha256.h in Headers */,
+				478EEC491C654A4C0062E08E /* crypto_auth_hmacsha512256.h in Headers */,
+				478EEC4A1C654A4C0062E08E /* crypto_box_curve25519xsalsa20poly1305.h in Headers */,
+				478EEC4B1C654A4C0062E08E /* crypto_core_hsalsa20.h in Headers */,
+				478EEC4C1C654A4C0062E08E /* crypto_core_salsa20.h in Headers */,
+				478EEC4D1C654A4C0062E08E /* crypto_core_salsa2012.h in Headers */,
+				478EEC4E1C654A4C0062E08E /* crypto_core_salsa208.h in Headers */,
+				478EEC4F1C654A4C0062E08E /* crypto_hash_sha256.h in Headers */,
+				478EEC501C654A4C0062E08E /* crypto_hash_sha512.h in Headers */,
+				478EEC511C654A4C0062E08E /* crypto_hashblocks_sha256.h in Headers */,
+				478EEC521C654A4C0062E08E /* crypto_hashblocks_sha512.h in Headers */,
+				478EEC531C654A4D0062E08E /* crypto_onetimeauth_poly1305.h in Headers */,
+				478EEC541C654A4D0062E08E /* crypto_scalarmult_curve25519.h in Headers */,
+				478EEC551C654A4D0062E08E /* crypto_secretbox_xsalsa20poly1305.h in Headers */,
+				478EEC561C654A4D0062E08E /* crypto_sign_edwards25519sha512batch.h in Headers */,
+				478EEC571C654A4D0062E08E /* crypto_stream_salsa20.h in Headers */,
+				478EEC581C654A4D0062E08E /* crypto_stream_salsa2012.h in Headers */,
+				478EEC591C654A4D0062E08E /* crypto_stream_salsa208.h in Headers */,
+				478EEC5A1C654A4D0062E08E /* crypto_stream_xsalsa20.h in Headers */,
+				478EEC5B1C654A4D0062E08E /* crypto_uint32.h in Headers */,
+				478EEC5C1C654A4D0062E08E /* crypto_verify_16.h in Headers */,
+				478EEC5D1C654A4D0062E08E /* crypto_verify_32.h in Headers */,
+				478EEC5E1C654A4D0062E08E /* randombytes.h in Headers */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXHeadersBuildPhase section */
+
 /* Begin PBXNativeTarget section */
 		1A64160B18FADE6500A769B2 /* serval */ = {
 			isa = PBXNativeTarget;
@@ -1367,6 +1530,7 @@
 				1A64160818FADE6500A769B2 /* Sources */,
 				1A64160918FADE6500A769B2 /* Frameworks */,
 				1A64160A18FADE6500A769B2 /* CopyFiles */,
+				478EEBF81C6544CA0062E08E /* Headers */,
 			);
 			buildRules = (
 			);
@@ -1579,7 +1743,6 @@
 				475DFC141C6528FC00376A47 /* cli.c in Sources */,
 				475DFAD21C65289D00376A47 /* ge_tobytes.c in Sources */,
 				475DFAB01C65289D00376A47 /* fe_0.c in Sources */,
-				475DFC341C6528FC00376A47 /* main.c in Sources */,
 				475DFC621C6528FD00376A47 /* server.c in Sources */,
 				475DFAA51C65289D00376A47 /* hash.c in Sources */,
 				475DFC501C6528FD00376A47 /* rhizome_bundle.c in Sources */,
@@ -1780,6 +1943,7 @@
 			buildSettings = {
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRIP_INSTALLED_PRODUCT = NO;
 			};
 			name = Debug;
 		};
@@ -1787,6 +1951,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				SDKROOT = iphoneos;
+				STRIP_INSTALLED_PRODUCT = NO;
 			};
 			name = Release;
 		};
@@ -1847,6 +2012,7 @@
 				);
 				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PUBLIC_HEADERS_FOLDER_PATH = include/$PROJECT_NAME;
 				RUN_CLANG_STATIC_ANALYZER = NO;
 				SKIP_INSTALL = YES;
 			};
@@ -1868,7 +2034,7 @@
 				CLANG_WARN_INT_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				COPY_PHASE_STRIP = YES;
+				COPY_PHASE_STRIP = NO;
 				DSTROOT = /tmp/serval.dst;
 				ENABLE_NS_ASSERTIONS = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu99;
@@ -1907,6 +2073,7 @@
 				);
 				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PUBLIC_HEADERS_FOLDER_PATH = include/$PROJECT_NAME;
 				RUN_CLANG_STATIC_ANALYZER = NO;
 				SKIP_INSTALL = YES;
 				VALIDATE_PRODUCT = YES;
@@ -1943,8 +2110,8 @@
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"SERVALD_VERSION=\"\\\"servald-xcode\\\"\"",
 					"SERVALD_COPYRIGHT=\"\\\"xxx\\\"\"",
-					"SYSCONFDIR=\"\\\"$(SRCROOT)/etc\\\"\"",
-					"LOCALSTATEDIR=\"\\\"$(SRCROOT)/var\\\"\"",
+					"SYSCONFDIR=\"\\\"$(SRCROOT)\\\"\"",
+					"LOCALSTATEDIR=\"\\\"$(SRCROOT)\\\"\"",
 				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
@@ -1997,8 +2164,8 @@
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"SERVALD_VERSION=\"\\\"servald-xcode\\\"\"",
 					"SERVALD_COPYRIGHT=\"\\\"xxx\\\"\"",
-					"SYSCONFDIR=\"\\\"$(SRCROOT)/etc\\\"\"",
-					"LOCALSTATEDIR=\"\\\"$(SRCROOT)/var\\\"\"",
+					"SYSCONFDIR=\"\\\"$(SRCROOT)\\\"\"",
+					"LOCALSTATEDIR=\"\\\"$(SRCROOT)\\\"\"",
 				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
@@ -2051,6 +2218,7 @@
 				475DFC801C65297800376A47 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};

@@ -67,5 +67,14 @@
 #define HAVE_LOG10F 1
 #define HAVE_STRLCPY 1
 
-//
+// rename this function, as it's already used by apples libs
 #define uuid_generate_random serval_uuid_generate_random
+
+// one may overwrite those variables, but building the lib for ios we need this sandbox path
+#ifndef SYSCONFDIR
+#define SYSCONFDIR getenv("HOME")
+#endif
+
+#ifndef LOCALSTATEDIR
+#define LOCALSTATEDIR getenv("HOME")
+#endif
