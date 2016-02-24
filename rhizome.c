@@ -664,14 +664,14 @@ void rhizome_apply_contentfilter(const struct config_rhizome_contentfilter *filt
     
     
     regex_t regex;
-    if (filter->regex[0]) {
+    if (filter->regex[0] || strlen(filter->regex) == 0) {
         DEBUGF(rhizome, "Contentfilters no regex set, skipping, match: %i", match);
     } else if (regcomp(&regex, filter->regex, 0)) {
         DEBUGF(rhizome, "Contentfilters compilation of regex %s failed. Skipping regex.", filter->regex);
         regfree(&regex);
     } else {
         match &= regexec(&regex, m->name, 0, NULL, 0);
-        DEBUGF(rhizome, "Contentfilters regex: %s, match: %i", match);
+        DEBUGF(rhizome, "Contentfilters regex: %s, match: %i", filter->regex, match);
         regfree(&regex);
     }
 
