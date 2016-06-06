@@ -164,8 +164,8 @@ int _overlay_payload_enqueue(struct __sourceloc __whence, struct overlay_frame *
   if (ob_overrun(p->payload))
     return WHY("Packet content overrun -- not queueing");
   
-  if (ob_position(p->payload) >= MDP_MTU)
-    FATAL("Queued packet is too big");
+  if (ob_position(p->payload) >= MDP_OVERLAY_MTU)
+    FATALF("Queued packet len %u is too big", ob_position(p->payload));
 
   if (queue->length>=queue->maxLength) 
     return WHYF("Queue #%d congested (size = %d)",p->queue,queue->maxLength);

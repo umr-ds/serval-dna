@@ -226,7 +226,7 @@ struct vomp_call_state;
 
 void set_codec_flag(int codec, unsigned char *flags);
 
-struct vomp_call_state *vomp_find_call_by_session(unsigned int session_token);
+struct vomp_call_state *vomp_find_call_by_session(uint16_t session_token);
 int vomp_parse_dtmf_digit(char c);
 int vomp_dial(struct subscriber *local, struct subscriber *remote, const char *local_did, const char *remote_did);
 int vomp_pickup(struct vomp_call_state *call);
@@ -243,9 +243,6 @@ int monitor_get_fds(struct pollfd *fds,int *fdcount,int fdmax);
 
 int monitor_setup_sockets();
 int monitor_get_fds(struct pollfd *fds,int *fdcount,int fdmax);
-int monitor_announce_peer(const sid_t *sidp);
-int monitor_announce_unreachable_peer(const sid_t *sidp);
-int monitor_announce_link(int hop_count, struct subscriber *transmitter, struct subscriber *receiver);
 int monitor_tell_clients(char *msg, int msglen, int mask);
 int monitor_tell_formatted(int mask, char *fmt, ...);
 int monitor_client_interested(int mask);

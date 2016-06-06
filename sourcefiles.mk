@@ -17,16 +17,13 @@ SERVAL_CLIENT_SOURCES = \
 	net.c \
 	os.c \
 	performance_timing.c \
-	randombytes.c \
 	rotbuf.c \
 	sighandlers.c \
 	socket.c \
-	srandomdev.c \
 	strbuf.c \
 	strbuf_helpers.c \
 	str.c \
 	strlcpy.c \
-        sha2.c \
 	uuid.c \
 	whence.c \
         xprintf.c
@@ -80,6 +77,7 @@ SERVAL_DAEMON_SOURCES = \
 	overlay_mdp.c \
 	overlay_mdp_services.c \
 	mdp_filter.c \
+	msp_server.c \
 	overlay_olsr.c \
 	overlay_packetformats.c \
 	overlay_payload.c \
@@ -96,6 +94,8 @@ SERVAL_DAEMON_SOURCES = \
 	rhizome_packetformats.c \
 	rhizome_store.c \
 	rhizome_sync.c \
+	rhizome_sync_keys.c \
+	sync_keys.c \
 	serval_packetvisualise.c \
 	server.c \
 	server_httpd.c \

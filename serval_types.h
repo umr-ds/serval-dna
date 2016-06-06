@@ -32,8 +32,8 @@ typedef char bool_t;
 /* Serval ID (aka Subscriber ID)
  */
 
-#define SID_SIZE 32 // == crypto_sign_edwards25519sha512batch_PUBLICKEYBYTES
-#define SAS_SIZE 32 // == crypto_sign_edwards25519sha512batch_PUBLICKEYBYTES
+#define SID_SIZE 32 // == crypto_sign_PUBLICKEYBYTES
+#define SAS_SIZE 32 // == crypto_sign_PUBLICKEYBYTES
 
 #define SID_STRLEN (SID_SIZE*2)
 
@@ -41,7 +41,12 @@ typedef struct sid_binary {
     unsigned char binary[SID_SIZE];
 } sid_t;
 
-#define SID_ANY         ((sid_t){{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}})
+#define SID_TYPE_ANY        (0)
+#define SID_TYPE_INTERNAL   (1)
+#define SID_TYPE_BROADCAST  (0xFF)
+
+#define SID_ANY         ((sid_t){{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,SID_TYPE_ANY}})
+#define SID_INTERNAL    ((sid_t){{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,SID_TYPE_INTERNAL}})
 #define SID_BROADCAST   ((sid_t){{0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff}})
 
 // is the SID entirely 0xFF?
@@ -57,6 +62,7 @@ int cmp_sid_t(const sid_t *a, const sid_t *b);
 int str_to_sid_t(sid_t *sid, const char *hex);
 int strn_to_sid_t(sid_t *sid, const char *hex, size_t hexlen);
 int parse_sid_t(sid_t *sid, const char *hex, ssize_t hexlen, const char **endp);
+int sid_get_special_type(const sid_t *sid);
 
 #define alloca_tohex_sas(sas)           alloca_tohex((sas), SAS_SIZE)
 

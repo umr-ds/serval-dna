@@ -479,11 +479,8 @@ static int rhizome_import_received_bundle(struct rhizome_manifest *m)
     case RHIZOME_BUNDLE_STATUS_DUPLICATE:
     case RHIZOME_BUNDLE_STATUS_OLD:
       return 1;
-    case RHIZOME_BUNDLE_STATUS_ERROR:
-    case RHIZOME_BUNDLE_STATUS_INVALID:
-      return -1;
     default:
-      FATALF("rhizome_add_manifest_to_store() returned %d", status);
+      return -1;
   }
 }
 
@@ -506,10 +503,6 @@ schedule_fetch(struct rhizome_fetch_slot *slot)
     slot->bid = slot->manifest->cryptoSignPublic;
     slot->prefix_length = sizeof slot->bid.binary;
     slot->bidVersion = slot->manifest->version;
-    /* Don't provide a filename, because we will stream the file straight into
-       the database. */
-    slot->manifest->dataFileName = NULL;
-    slot->manifest->dataFileUnlinkOnFree = 0;
     
     strbuf r = strbuf_local_buf(slot->request);
     strbuf_sprintf(r, "GET /rhizome/file/%s HTTP/1.0\r\n", alloca_tohex_rhizome_filehash_t(slot->manifest->filehash));
@@ -1027,7 +1020,7 @@ static int rhizome_fetch_mdp_touch_timeout(struct rhizome_fetch_slot *slot)
   // For now, we will just make the timeout 1 second from the time of the last
   // received block.
   unschedule(&slot->alarm);
-  slot->alarm.alarm=gettime_ms()+config.rhizome.mdp_stall_timeout; 
+  slot->alarm.alarm=gettime_ms()+config.rhizome.mdp.stall_timeout;
   slot->alarm.deadline=slot->alarm.alarm+500;
   schedule(&slot->alarm);
   return 0;
@@ -1114,7 +1107,7 @@ static int pipe_journal(struct rhizome_fetch_slot *slot){
   assert(slot->previous->tail != RHIZOME_SIZE_UNSET);
   assert(slot->previous->filesize != RHIZOME_SIZE_UNSET);
   uint64_t start = slot->manifest->tail - slot->previous->tail + slot->write_state.file_offset;
-  uint64_t length = slot->previous->filesize - slot->manifest->tail - slot->write_state.file_offset;
+  uint64_t length = slot->previous->filesize - start;
   
   // of course there might not be any overlap
   if (start < slot->previous->filesize && length>0){
@@ -1193,7 +1186,7 @@ static enum rhizome_start_fetch_result rhizome_fetch_switch_to_mdp(struct rhizom
   if (q)
     slot->mdpIdleTimeout *= 1+(q - rhizome_fetch_queues);
   
-  slot->mdpRXBlockLength = config.rhizome.rhizome_mdp_block_size; // Rhizome over MDP block size
+  slot->mdpRXBlockLength = config.rhizome.mdp.block_size; // Rhizome over MDP block size
   rhizome_fetch_mdp_requestblocks(slot);
 
   RETURN(STARTED);
@@ -1393,9 +1386,9 @@ int rhizome_received_content(const unsigned char *bidprefix,
     
     if (m){
       if (rhizome_import_buffer(m, bytes, count) == RHIZOME_PAYLOAD_STATUS_NEW) {
-	INFOF("Completed MDP transfer in one hit for file %s",
-	    alloca_tohex_rhizome_filehash_t(m->filehash));
-	rhizome_import_received_bundle(m);
+	if (rhizome_import_received_bundle(m)!=-1)
+	  INFOF("Completed MDP transfer in one hit for file %s",
+	      alloca_tohex_rhizome_filehash_t(m->filehash));
 	if (c)
 	  candidate_unqueue(c);
       }

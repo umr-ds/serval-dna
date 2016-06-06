@@ -57,7 +57,7 @@ static uint64_t rhizome_manifest_get_ui64(rhizome_manifest *m, const char *var)
  */
 static int _rhizome_manifest_del(struct __sourceloc __whence, rhizome_manifest *m, const char *var)
 {
-  DEBUGF(rhizome_manifest, "DEL manifest[%d].%s", m->manifest_record_number, var);
+  DEBUGF(rhizome_manifest, "DEL manifest %p %s", m, var);
   int ret = 0;
   unsigned i;
   for (i = 0; i < m->var_count; ++i)
@@ -81,7 +81,7 @@ static int _rhizome_manifest_del(struct __sourceloc __whence, rhizome_manifest *
 
 static const char *_rhizome_manifest_set(struct __sourceloc __whence, rhizome_manifest *m, const char *var, const char *value)
 {
-  DEBUGF(rhizome_manifest, "SET manifest[%d].%s = %s", m->manifest_record_number, var, alloca_str_toprint(value));
+  DEBUGF(rhizome_manifest, "SET manifest %p %s = %s", m, var, alloca_str_toprint(value));
   unsigned i;
   for(i=0;i<m->var_count;i++)
     if (strcmp(m->vars[i],var) == 0) {
@@ -375,33 +375,42 @@ void _rhizome_manifest_set_crypt(struct __sourceloc __whence, rhizome_manifest *
 
 void _rhizome_manifest_set_rowid(struct __sourceloc __whence, rhizome_manifest *m, uint64_t rowid)
 {
-  DEBUGF(rhizome_manifest, "SET manifest[%d].rowid = %"PRIu64, m->manifest_record_number, rowid);
+  DEBUGF(rhizome_manifest, "SET manifest %p rowid = %"PRIu64, m, rowid);
   m->rowid = rowid;
 }
 
 void _rhizome_manifest_set_inserttime(struct __sourceloc __whence, rhizome_manifest *m, time_ms_t time)
 {
-  DEBUGF(rhizome_manifest, "SET manifest[%d].inserttime = %"PRItime_ms_t, m->manifest_record_number, time);
+  DEBUGF(rhizome_manifest, "SET manifest %p inserttime = %"PRItime_ms_t, m, time);
   m->inserttime = time;
 }
 
-void _rhizome_manifest_set_author(struct __sourceloc __whence, rhizome_manifest *m, const sid_t *sidp)
+void _rhizome_manifest_set_author(struct __sourceloc __whence, rhizome_manifest *m, const keyring_identity *id, const sid_t *sidp)
 {
-  if (sidp) {
-    if (m->authorship == ANONYMOUS || cmp_sid_t(&m->author, sidp) != 0) {
-      DEBUGF(rhizome_manifest, "SET manifest[%d] author = %s", m->manifest_record_number, alloca_tohex_sid_t(*sidp));
-      m->author = *sidp;
-      m->authorship = AUTHOR_NOT_CHECKED;
-    }
-  } else
+  if (id) {
+    if (m->author_identity == id)
+      return;
+    sidp = id->box_pk;
+  } else if (sidp) {
+    if (m->authorship != ANONYMOUS && cmp_sid_t(&m->author, sidp) == 0)
+      return;
+  } else {
     _rhizome_manifest_del_author(__whence, m);
+    return;
+  }
+
+  DEBUGF(rhizome_manifest, "SET manifest %p author = %s", m, alloca_tohex_sid_t(*sidp));
+  m->author = *sidp;
+  m->author_identity = id;
+  m->authorship = AUTHOR_NOT_CHECKED;
 }
 
 void _rhizome_manifest_del_author(struct __sourceloc __whence, rhizome_manifest *m)
 {
   if (m->authorship != ANONYMOUS) {
-    DEBUGF(rhizome_manifest, "DEL manifest[%d] author", m->manifest_record_number);
+    DEBUGF(rhizome_manifest, "DEL manifest %p author", m);
     m->author = SID_ANY;
+    m->author_identity = NULL;
     m->authorship = ANONYMOUS;
   }
 }
@@ -445,7 +454,7 @@ int rhizome_manifest_verify(rhizome_manifest *m)
   }
   if (memcmp(m->signatories[0], m->cryptoSignPublic.binary, sizeof m->cryptoSignPublic.binary) != 0) {
     DEBUGF(rhizome_manifest, "Manifest id does not match first signature block (signature key is %s)",
-	   alloca_tohex(m->signatories[0], crypto_sign_edwards25519sha512batch_PUBLICKEYBYTES)
+	   alloca_tohex(m->signatories[0], crypto_sign_PUBLICKEYBYTES)
 	  );
     m->selfSigned = 0;
     return 0;
@@ -978,7 +987,7 @@ int _rhizome_manifest_overwrite(struct __sourceloc __whence, rhizome_manifest *m
   for (i = 0; i < NELS(rhizome_manifest_fields); ++i) {
       struct rhizome_manifest_field_descriptor *desc = &rhizome_manifest_fields[i];
       if (desc->test(srcm)) {
-	DEBUGF(rhizome_manifest, "COPY manifest[%d].%s to:", srcm->manifest_record_number, desc->label);
+	DEBUGF(rhizome_manifest, "COPY manifest %p %s to:", srcm, desc->label);
 	desc->copy(__whence, m, srcm);
       }
   }
@@ -1076,7 +1085,7 @@ rhizome_manifest_parse_field(rhizome_manifest *m, const char *field_label, size_
   } else if (rhizome_manifest_set(m, label, value) == NULL)
     status = RHIZOME_MANIFEST_ERROR;
   if (status != RHIZOME_MANIFEST_OK) {
-    DEBUGF(rhizome_manifest, "SKIP manifest[%d].%s = %s (status=%d)", m->manifest_record_number, label, alloca_str_toprint(value), status);
+    DEBUGF(rhizome_manifest, "SKIP manifest %p %s = %s (status=%d)", m, label, alloca_str_toprint(value), status);
   }
   return status;
 }
@@ -1217,106 +1226,25 @@ int rhizome_hash_file(rhizome_manifest *m, const char *path, rhizome_filehash_t 
   return 0;
 }
 
-rhizome_manifest manifests[MAX_RHIZOME_MANIFESTS];
-char manifest_free[MAX_RHIZOME_MANIFESTS];
-int manifest_first_free=-1;
-struct __sourceloc manifest_alloc_whence[MAX_RHIZOME_MANIFESTS];
-struct __sourceloc manifest_free_whence[MAX_RHIZOME_MANIFESTS];
-
-static unsigned _count_free_manifests()
-{
-  unsigned count_free = 0;
-  unsigned i;
-  for (i = 0; i != MAX_RHIZOME_MANIFESTS; ++i)
-    if (manifest_free[i])
-      ++count_free;
-  return count_free;
-}
-
 rhizome_manifest *_rhizome_new_manifest(struct __sourceloc __whence)
 {
-  if (manifest_first_free<0) {
-    /* Setup structures */
-    unsigned i;
-    for(i=0;i<MAX_RHIZOME_MANIFESTS;i++) {
-      manifest_alloc_whence[i]=__NOWHERE__;
-      manifest_free_whence[i]=__NOWHERE__;
-      manifest_free[i]=1;
-    }
-    manifest_first_free=0;
+  rhizome_manifest *m=emalloc_zero(sizeof(rhizome_manifest));
+  if (m){
+    DEBUGF(rhizome_manifest, "NEW manifest %p", m);
+
+    // Set global defaults for a manifest (which are not zero)
+    rhizome_manifest_clear(m);
   }
-
-  /* No free manifests */
-  if (manifest_first_free>=MAX_RHIZOME_MANIFESTS)
-    {
-      unsigned i;
-      WHYF("%s(): no free manifest records, this probably indicates a memory leak", __FUNCTION__);
-      WHYF("   Slot# | Last allocated by");
-      for(i=0;i<MAX_RHIZOME_MANIFESTS;i++) {
-	WHYF("   %-5d | %s:%d in %s()",
-		i,
-		manifest_alloc_whence[i].file,
-		manifest_alloc_whence[i].line,
-		manifest_alloc_whence[i].function
-	    );
-      }
-      return NULL;
-    }
-
-  rhizome_manifest *m=&manifests[manifest_first_free];
-  bzero(m,sizeof(rhizome_manifest));
-  m->manifest_record_number=manifest_first_free;
-
-  /* Indicate where manifest was allocated, and that it is no longer
-     free. */
-  manifest_alloc_whence[manifest_first_free]=__whence;
-  manifest_free[manifest_first_free]=0;
-  manifest_free_whence[manifest_first_free]=__NOWHERE__;
-
-  /* Work out where next free manifest record lives */
-  for (; manifest_first_free < MAX_RHIZOME_MANIFESTS && !manifest_free[manifest_first_free]; ++manifest_first_free)
-    ;
-
-  DEBUGF(rhizome_manifest, "NEW manifest[%d], count_free=%u", m->manifest_record_number, _count_free_manifests());
-
-  // Set global defaults for a manifest (which are not zero)
-  rhizome_manifest_clear(m);
-
   return m;
 }
 
 void _rhizome_manifest_free(struct __sourceloc __whence, rhizome_manifest *m)
 {
   if (!m) return;
-  int mid=m->manifest_record_number;
-
-  if (m!=&manifests[mid])
-    FATALF("%s(): manifest at %p claims to be manifest[%d] (%p) but isn't",
-	  __FUNCTION__, m, mid, &manifests[mid]
-      );
-
-  if (manifest_free[mid])
-    FATALF("%s(): manifest[%d] (%p) was already freed at %s:%d:%s()",
-	  __FUNCTION__, mid, m,
-	  manifest_free_whence[mid].file,
-	  manifest_free_whence[mid].line,
-	  manifest_free_whence[mid].function
-	);
-
+  DEBUGF(rhizome_manifest, "FREE manifest %p", m);
+  
   /* Free variable and signature blocks. */
   rhizome_manifest_clear(m);
-  if (m->dataFileName) {
-    if (m->dataFileUnlinkOnFree && unlink(m->dataFileName) == -1)
-      WARNF_perror("unlink(%s)", alloca_str_toprint(m->dataFileName));
-    free((char *) m->dataFileName);
-    m->dataFileName = NULL;
-  }
-
-  manifest_free[mid]=1;
-  manifest_free_whence[mid]=__whence;
-  if (mid<manifest_first_free) manifest_first_free=mid;
-
-  DEBUGF(rhizome_manifest, "FREE manifest[%d], count_free=%u", m->manifest_record_number, _count_free_manifests());
 
   return;
 }
@@ -1359,21 +1287,23 @@ static struct rhizome_bundle_result rhizome_manifest_selfsign(rhizome_manifest *
   assert(m->manifest_body_bytes == m->manifest_all_bytes); // no signature yet
   if (!m->haveSecret)
     return rhizome_bundle_result_static(RHIZOME_BUNDLE_STATUS_READONLY, "Missing bundle secret");
-  crypto_hash_sha512(m->manifesthash.binary, m->manifestdata, m->manifest_body_bytes);
-  rhizome_signature sig;
-  if (rhizome_sign_hash(m, &sig) == -1)
-    return rhizome_bundle_result_static(RHIZOME_BUNDLE_STATUS_ERROR, "rhizome_sign_hash() failed");
-  assert(sig.signatureLength > 0);
-  /* Append signature to end of manifest data */
-  if (sig.signatureLength + m->manifest_body_bytes > sizeof m->manifestdata) {
+
+  size_t sigLen = 1 + crypto_sign_BYTES + crypto_sign_PUBLICKEYBYTES;
+  if (sizeof m->manifestdata - m->manifest_body_bytes < sigLen)
     return rhizome_bundle_result_sprintf(RHIZOME_BUNDLE_STATUS_MANIFEST_TOO_BIG,
 	    "Manifest too big: body of %zu + signature of %zu bytes exceeds limit of %zu",
 	    m->manifest_body_bytes,
-	    sig.signatureLength,
+	    sigLen,
 	    sizeof m->manifestdata);
-  }
-  bcopy(sig.signature, m->manifestdata + m->manifest_body_bytes, sig.signatureLength);
-  m->manifest_all_bytes = m->manifest_body_bytes + sig.signatureLength;
+
+  crypto_hash_sha512(m->manifesthash.binary, m->manifestdata, m->manifest_body_bytes);
+  uint8_t *p = &m->manifestdata[m->manifest_body_bytes];
+  *p++ = 0x17; // CryptoSign
+  if (crypto_sign_detached(p, NULL, m->manifesthash.binary, sizeof m->manifesthash.binary, m->cryptoSignSecret))
+    return rhizome_bundle_result_static(RHIZOME_BUNDLE_STATUS_ERROR, "crypto_sign_detached() failed");
+  p+=crypto_sign_BYTES;
+  bcopy(m->cryptoSignPublic.binary, p, crypto_sign_BYTES);
+  m->manifest_all_bytes = m->manifest_body_bytes + sigLen;
   m->selfSigned = 1;
   return rhizome_bundle_result(RHIZOME_BUNDLE_STATUS_NEW);
 }
@@ -1499,25 +1429,16 @@ int rhizome_manifest_set_name_from_path(rhizome_manifest *m, const char *filepat
  * pointer to a "free" method (eg, free(3)) that must be called to release the string before the
  * pointer is discarded.
  */
-struct rhizome_bundle_result rhizome_fill_manifest(rhizome_manifest *m, const char *filepath, const sid_t *authorSidp)
+struct rhizome_bundle_result rhizome_fill_manifest(rhizome_manifest *m, const char *filepath)
 {
   /* Set version of manifest from current time if not already set. */
   if (m->version == 0)
     rhizome_manifest_set_version(m, gettime_ms());
 
-  /* Set the manifest's author.  This must be done before binding to a new ID (below).  If the
-   * 'authorSidp' parameter was not set, then don't use the 'sender' field here, as we only want to
-   * authenticate an explicitly supplied author, not the sender.
-   */
-  if (authorSidp)
-    rhizome_manifest_set_author(m, authorSidp);
-
   /* Fill in the bundle secret and bundle ID.
    */
-  int valid_haveSecret = 0;
   switch (m->haveSecret) {
   case SECRET_UNKNOWN:
-    valid_haveSecret = 1;
     // If the Bundle Id is already known, then derive the bundle secret from BK if known.
     if (m->has_id) {
       DEBUGF(rhizome, "discover secret for bundle bid=%s", alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
@@ -1531,7 +1452,6 @@ struct rhizome_bundle_result rhizome_fill_manifest(rhizome_manifest *m, const ch
     }
     // fall through to set the BK field...
   case NEW_BUNDLE_ID:
-    valid_haveSecret = 1;
     assert(m->has_id);
     // If no 'authorSidp' parameter was supplied but the manifest has a 'sender' field, then use the
     // sender as the author.
@@ -1544,42 +1464,35 @@ struct rhizome_bundle_result rhizome_fill_manifest(rhizome_manifest *m, const ch
     }
     break;
   case EXISTING_BUNDLE_ID:
-    valid_haveSecret = 1;
     // If modifying an existing bundle, try to discover the bundle secret key and the author.
     assert(m->has_id);
     DEBUGF(rhizome, "modifying existing bundle bid=%s", alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
     rhizome_authenticate_author(m);
     // TODO assert that new version > old version?
-  }
-  if (!valid_haveSecret)
+    break;
+  default:
     FATALF("haveSecret = %d", m->haveSecret);
-  int valid_authorship = 0;
+  }
+
   switch (m->authorship) {
   case ANONYMOUS:
-    assert(!authorSidp);
-    valid_authorship = 1;
-    break;
   case AUTHOR_AUTHENTIC:
-    valid_authorship = 1;
-    break;
+    break; // all good
   case AUTHOR_UNKNOWN:
     return rhizome_bundle_result_static(RHIZOME_BUNDLE_STATUS_READONLY, "Author is not in keyring");
   case AUTHOR_IMPOSTOR:
     return rhizome_bundle_result_static(RHIZOME_BUNDLE_STATUS_READONLY, "Incorrect author");
-  case AUTHOR_NOT_CHECKED:
-  case AUTHOR_LOCAL:
-    FATALF("logic error (bug): m->authorship = %d", m->authorship);
   case AUTHENTICATION_ERROR:
     return rhizome_bundle_result_static(RHIZOME_BUNDLE_STATUS_ERROR, "Error authenticating author");
-  }
-  if (!valid_authorship)
+  default:
     FATALF("m->authorship = %d", (int)m->authorship);
+  }
 
   /* Service field must already be set.
    */
-  if (m->service == NULL) {
+  if (m->service == NULL)
     return rhizome_bundle_result_static(RHIZOME_BUNDLE_STATUS_INVALID, "Missing 'service' field");
-  }
+
   DEBUGF(rhizome, "manifest contains service=%s", m->service);
 
   /* Fill in 'date' field to current time unless already set.
@@ -1604,11 +1517,10 @@ struct rhizome_bundle_result rhizome_fill_manifest(rhizome_manifest *m, const ch
    * and encrypted by default.
    */
   if (   m->payloadEncryption == PAYLOAD_CRYPT_UNKNOWN
-      && m->has_sender
       && m->has_recipient
       && !is_sid_t_broadcast(m->recipient)
   ) {
-    DEBUGF(rhizome, "Implicitly adding payload encryption due to presense of sender & recipient fields");
+    DEBUGF(rhizome, "Implicitly adding payload encryption due to presense of recipient field");
     rhizome_manifest_set_crypt(m, PAYLOAD_ENCRYPTED);
   }
 
@@ -1629,7 +1541,7 @@ int rhizome_lookup_author(rhizome_manifest *m)
     case AUTHOR_AUTHENTIC:
       RETURN(1);
     case AUTHOR_NOT_CHECKED:
-      DEBUGF(rhizome, "manifest[%d] lookup author=%s", m->manifest_record_number, alloca_tohex_sid_t(m->author));
+      DEBUGF(rhizome, "manifest %p lookup author=%s", m, alloca_tohex_sid_t(m->author));
       keyring_iterator_start(keyring, &it);
       if (keyring_find_sid(&it, &m->author)) {
 	DEBUGF(rhizome, "found author");
@@ -1639,7 +1551,7 @@ int rhizome_lookup_author(rhizome_manifest *m)
       // fall through
     case ANONYMOUS:
       if (m->has_sender) {
-	DEBUGF(rhizome, "manifest[%d] lookup sender=%s", m->manifest_record_number, alloca_tohex_sid_t(m->sender));
+	DEBUGF(rhizome, "manifest %p lookup sender=%s", m, alloca_tohex_sid_t(m->sender));
 	keyring_iterator_start(keyring, &it);
 	if (keyring_find_sid(&it, &m->sender)) {
 	  DEBUGF(rhizome, "found sender");

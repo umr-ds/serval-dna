@@ -48,12 +48,6 @@ extern time_ms_t rhizome_voice_timeout;
 
 #define RHIZOME_IDLE_TIMEOUT 20000
 
-typedef struct rhizome_signature {
-  unsigned char signature[crypto_sign_edwards25519sha512batch_BYTES
-			  +crypto_sign_edwards25519sha512batch_PUBLICKEYBYTES+1];
-  size_t signatureLength;
-} rhizome_signature;
-
 #define RHIZOME_BAR_COMPARE_BYTES 31
 #define RHIZOME_BAR_TTL_OFFSET 31
 
@@ -63,13 +57,12 @@ typedef struct rhizome_signature {
 
 typedef struct rhizome_manifest
 {
-  int manifest_record_number;
 
   /* CryptoSign key pair for this manifest.  The public key is the Bundle ID
    * (aka Manifest ID).
    */
   rhizome_bid_t cryptoSignPublic;
-  unsigned char cryptoSignSecret[crypto_sign_edwards25519sha512batch_SECRETKEYBYTES];
+  unsigned char cryptoSignSecret[crypto_sign_SECRETKEYBYTES];
 
   /* Whether cryptoSignSecret is correct (ie, bundle secret is known)
    */
@@ -124,44 +117,40 @@ typedef struct rhizome_manifest
    * appended.  All fields below may not be valid until the manifest has been
    * finalised.
    */
-  bool_t finalised;
+  bool_t finalised:1;
 
   /* Whether the manifest contains a signature that corresponds to the manifest
    * id (ie public key).
    */
-  bool_t selfSigned;
-
-  /* If set, unlink(2) the associated file when freeing the manifest.
-   */
-  bool_t dataFileUnlinkOnFree;
+  bool_t selfSigned:1;
 
   /* Set if the ID field (cryptoSignPublic) contains a bundle ID.
    */
-  bool_t has_id;
+  bool_t has_id:1;
 
   /* Set if the filehash field contains a file hash.
    */
-  bool_t has_filehash;
+  bool_t has_filehash:1;
 
   /* Set if the tail field is valid, ie, the bundle is a journal.
    */
-  bool_t is_journal;
+  bool_t is_journal:1;
 
   /* Set if the date field is valid, ie, the manifest contains a valid "date"
    * field.
    */
-  bool_t has_date;
+  bool_t has_date:1;
 
   /* Set if the bundle_key field is valid, ie, the manifest contains a valid
    * "BK" field.
    */
-  bool_t has_bundle_key;
+  bool_t has_bundle_key:1;
 
   /* Set if the sender and recipient fields are valid, ie, the manifest
    * contains a valid "sender"/"recipient" field.
    */
-  bool_t has_sender;
-  bool_t has_recipient;
+  bool_t has_sender:1;
+  bool_t has_recipient:1;
 
   /* Local authorship.  Useful for dividing bundle lists between "sent" and
    * "inbox" views.
@@ -176,9 +165,6 @@ typedef struct rhizome_manifest
     AUTHOR_AUTHENTIC // a local identity is the verified author
   } authorship;
 
-  /* Absolute path of the file associated with the manifest */
-  const char *dataFileName;
-
   /* Whether the paylaod is encrypted or not */
   enum rhizome_manifest_crypt {
         PAYLOAD_CRYPT_UNKNOWN = 0,
@@ -186,7 +172,7 @@ typedef struct rhizome_manifest
         PAYLOAD_ENCRYPTED
     } payloadEncryption;
   unsigned char payloadKey[RHIZOME_CRYPT_KEY_BYTES];
-  unsigned char payloadNonce[crypto_stream_xsalsa20_NONCEBYTES];
+  unsigned char payloadNonce[crypto_box_NONCEBYTES];
 
   /* From the "date" field, if present.  The number of milliseconds since 1970
    * when the bundle was last modified.
@@ -228,11 +214,7 @@ typedef struct rhizome_manifest
    * have an ANY author (all zeros).
    */
   sid_t author;
-
-  /* Unused.  SHOULD BE DELETED.
-   */
-  unsigned group_count;
-  char *groups[MAX_MANIFEST_VARS];
+  const struct keyring_identity *author_identity;
 
   size_t manifest_body_bytes;
   size_t manifest_all_bytes;
@@ -273,7 +255,8 @@ typedef struct rhizome_manifest
 #define rhizome_manifest_set_crypt(m,v)         _rhizome_manifest_set_crypt(__WHENCE__,(m),(v))
 #define rhizome_manifest_set_rowid(m,v)         _rhizome_manifest_set_rowid(__WHENCE__,(m),(v))
 #define rhizome_manifest_set_inserttime(m,v)    _rhizome_manifest_set_inserttime(__WHENCE__,(m),(v))
-#define rhizome_manifest_set_author(m,v)        _rhizome_manifest_set_author(__WHENCE__,(m),(v))
+#define rhizome_manifest_set_author(m,v)        _rhizome_manifest_set_author(__WHENCE__,(m),NULL,(v))
+#define rhizome_manifest_set_author_identity(m,v) _rhizome_manifest_set_author(__WHENCE__,(m),(v),NULL)
 #define rhizome_manifest_del_author(m)          _rhizome_manifest_del_author(__WHENCE__,(m))
 
 void _rhizome_manifest_set_id(struct __sourceloc, rhizome_manifest *, const rhizome_bid_t *);
@@ -299,7 +282,7 @@ void _rhizome_manifest_del_recipient(struct __sourceloc, rhizome_manifest *);
 void _rhizome_manifest_set_crypt(struct __sourceloc, rhizome_manifest *, enum rhizome_manifest_crypt);
 void _rhizome_manifest_set_rowid(struct __sourceloc, rhizome_manifest *, uint64_t);
 void _rhizome_manifest_set_inserttime(struct __sourceloc, rhizome_manifest *, time_ms_t);
-void _rhizome_manifest_set_author(struct __sourceloc, rhizome_manifest *, const sid_t *);
+void _rhizome_manifest_set_author(struct __sourceloc, rhizome_manifest *, const struct keyring_identity *, const sid_t *);
 void _rhizome_manifest_del_author(struct __sourceloc, rhizome_manifest *);
 
 #define rhizome_manifest_overwrite(dstm,srcm)   _rhizome_manifest_overwrite(__WHENCE__,(dstm),(srcm))
@@ -355,6 +338,7 @@ int rhizome_enabled();
 int rhizome_fetch_delay_ms();
 
 #define RHIZOME_BLOB_SUBDIR "blob"
+#define RHIZOME_HASH_SUBDIR "hash"
 
 extern __thread sqlite3 *rhizome_db;
 serval_uuid_t rhizome_db_uuid;
@@ -504,12 +488,11 @@ struct rhizome_bundle_result rhizome_manifest_add_file(int appending,
 int rhizome_bundle_import_files(rhizome_manifest *m, rhizome_manifest **m_out, const char *manifest_path, const char *filepath, int zip_files);
 
 int rhizome_manifest_set_name_from_path(rhizome_manifest *m, const char *filepath);
-struct rhizome_bundle_result rhizome_fill_manifest(rhizome_manifest *m, const char *filepath, const sid_t *authorSidp);
+struct rhizome_bundle_result rhizome_fill_manifest(rhizome_manifest *m, const char *filepath);
 
 int rhizome_apply_bundle_secret(rhizome_manifest *, const rhizome_bk_t *);
 int rhizome_manifest_add_bundle_key(rhizome_manifest *);
 
-void rhizome_find_bundle_author_and_secret(rhizome_manifest *m);
 int rhizome_lookup_author(rhizome_manifest *m);
 void rhizome_authenticate_author(rhizome_manifest *m);
 
@@ -519,7 +502,6 @@ enum rhizome_bundle_status rhizome_add_manifest_to_store(rhizome_manifest *m_in,
 
 void rhizome_bytes_to_hex_upper(unsigned const char *in, char *out, int byteCount);
 int rhizome_find_privatekey(rhizome_manifest *m);
-int rhizome_sign_hash(rhizome_manifest *m, rhizome_signature *out);
 
 __RHIZOME_INLINE int sqlite_code_ok(int code)
 {
@@ -572,6 +554,7 @@ int _sqlite_step(struct __sourceloc, int log_level, sqlite_retry_state *retry, s
 int _sqlite_exec(struct __sourceloc __whence, int log_level, sqlite_retry_state *retry, sqlite3_stmt *statement);
 int _sqlite_exec_void(struct __sourceloc, int log_level, const char *sqltext, ...);
 int _sqlite_exec_void_retry(struct __sourceloc, int log_level, sqlite_retry_state *retry, const char *sqltext, ...);
+int _sqlite_exec_changes_retry(struct __sourceloc __whence, int log_level, sqlite_retry_state *retry, int *rowcount, int *changes, const char *sqltext, ...);
 int _sqlite_exec_uint64(struct __sourceloc, uint64_t *result, const char *sqltext, ...);
 int _sqlite_exec_uint64_retry(struct __sourceloc, sqlite_retry_state *retry, uint64_t *result, const char *sqltext, ...);
 int _sqlite_exec_strbuf(struct __sourceloc, strbuf sb, const char *sqltext, ...);
@@ -619,6 +602,8 @@ int _sqlite_blob_close(struct __sourceloc, int log_level, sqlite3_blob *blob);
 #define sqlite_exec_void(sql,arg,...)                   _sqlite_exec_void(__WHENCE__, LOG_LEVEL_ERROR, (sql), arg, ##__VA_ARGS__)
 #define sqlite_exec_void_loglevel(ll,sql,arg,...)       _sqlite_exec_void(__WHENCE__, (ll), (sql), arg, ##__VA_ARGS__)
 #define sqlite_exec_void_retry(rs,sql,arg,...)          _sqlite_exec_void_retry(__WHENCE__, LOG_LEVEL_ERROR, (rs), (sql), arg, ##__VA_ARGS__)
+#define sqlite_exec_changes_retry(rs,ROWS,CHANGES,sql,arg,...) _sqlite_exec_changes_retry(__WHENCE__, LOG_LEVEL_ERROR, (rs), (ROWS), (CHANGES), (sql), arg, ##__VA_ARGS__)
+#define sqlite_exec_changes_retry_loglevel(ll,rs,ROWS,CHANGES,sql,arg,...) _sqlite_exec_changes_retry(__WHENCE__, (ll), (rs), (ROWS), (CHANGES), (sql), arg, ##__VA_ARGS__)
 #define sqlite_exec_void_retry_loglevel(ll,rs,sql,arg,...) _sqlite_exec_void_retry(__WHENCE__, (ll), (rs), (sql), arg, ##__VA_ARGS__)
 #define sqlite_exec_uint64(res,sql,arg,...)             _sqlite_exec_uint64(__WHENCE__, (res), (sql), arg, ##__VA_ARGS__)
 #define sqlite_exec_uint64_retry(rs,res,sql,arg,...)    _sqlite_exec_uint64_retry(__WHENCE__, (rs), (res), (sql), arg, ##__VA_ARGS__)
@@ -637,7 +622,10 @@ int rhizome_is_bar_interesting(const rhizome_bar_t *bar);
 int rhizome_is_manifest_interesting(rhizome_manifest *m);
 enum rhizome_bundle_status rhizome_retrieve_manifest(const rhizome_bid_t *bid, rhizome_manifest *m);
 enum rhizome_bundle_status rhizome_retrieve_manifest_by_prefix(const unsigned char *prefix, unsigned prefix_len, rhizome_manifest *m);
+enum rhizome_bundle_status rhizome_retrieve_manifest_by_hash_prefix(const uint8_t *prefix, unsigned prefix_len, rhizome_manifest *m);
+enum rhizome_bundle_status rhizome_retrieve_bar_by_hash_prefix(const uint8_t *prefix, unsigned prefix_len, rhizome_bar_t *bar);
 int rhizome_advertise_manifest(struct subscriber *dest, rhizome_manifest *m);
+int rhizome_mdp_send_block(struct subscriber *dest, const rhizome_bid_t *bid, uint64_t version, uint64_t fileOffset, uint32_t bitmap, uint16_t blockLength);
 int rhizome_delete_bundle(const rhizome_bid_t *bidp);
 int rhizome_delete_manifest(const rhizome_bid_t *bidp);
 int rhizome_delete_payload(const rhizome_bid_t *bidp);
@@ -648,34 +636,20 @@ int rhizome_delete_file(const rhizome_filehash_t *hashp);
 #define RHIZOME_VERIFY 1
 
 int rhizome_fetching_get_fds(struct pollfd *fds,int *fdcount,int fdmax);
-enum rhizome_secret_disposition {
-    FOUND_RHIZOME_SECRET = 0,
-    IDENTITY_NOT_FOUND,
-    IDENTITY_HAS_NO_RHIZOME_SECRET,
-};
-enum rhizome_secret_disposition find_rhizome_secret(const sid_t *authorSidp, size_t *rs_len, const unsigned char **rs);
-int rhizome_bk_xor_stream(
-  const rhizome_bid_t *bidp,
-  const unsigned char *rs,
-  const size_t rs_len,
-  unsigned char *xor_stream,
-  int xor_stream_byte_count);
 int rhizome_bk2secret(
   const rhizome_bid_t *bidp,
   const unsigned char *rs, const size_t rs_len,
   /* The BK need only be the length of the secret half of the secret key */
   const unsigned char bkin[RHIZOME_BUNDLE_KEY_BYTES],
-  unsigned char secret[crypto_sign_edwards25519sha512batch_SECRETKEYBYTES]
+  unsigned char secret[crypto_sign_SECRETKEYBYTES]
 		      );
 int rhizome_secret2bk(
   const rhizome_bid_t *bidp,
   const unsigned char *rs, const size_t rs_len,
   /* The BK need only be the length of the secret half of the secret key */
   unsigned char bkout[RHIZOME_BUNDLE_KEY_BYTES],
-  const unsigned char secret[crypto_sign_edwards25519sha512batch_SECRETKEYBYTES]
+  const unsigned char secret[crypto_sign_SECRETKEYBYTES]
 );
-int rhizome_sign_hash_with_key(rhizome_manifest *m,const unsigned char *sk,
-			       const unsigned char *pk,rhizome_signature *out);
 int rhizome_verify_bundle_privatekey(const unsigned char *sk, const unsigned char *pk);
 int rhizome_queue_ignore_manifest(const unsigned char *bid_prefix, int prefix_len, int timeout);
 int rhizome_ignore_manifest_check(const unsigned char *bid_prefix, int prefix_len);
@@ -709,10 +683,6 @@ int rhizome_list_next(struct rhizome_list_cursor *);
 void rhizome_list_commit(struct rhizome_list_cursor *);
 void rhizome_list_release(struct rhizome_list_cursor *);
 
-/* one manifest is required per candidate, plus a few spare.
-   so MAX_RHIZOME_MANIFESTS must be > MAX_CANDIDATES. 
-*/
-#define MAX_RHIZOME_MANIFESTS 40
 #define MAX_CANDIDATES 32
 
 int rhizome_suggest_queue_manifest_import(rhizome_manifest *m, const struct socket_address *addr, const struct subscriber *peer);
@@ -745,11 +715,12 @@ struct rhizome_write
   sqlite3_blob *sql_blob;
   
   rhizome_filehash_t id;
-  uint8_t id_known;
-  uint8_t crypt;
-  
+  uint8_t id_known:1;
+  uint8_t crypt:1;
+  uint8_t journal:1;
+
   unsigned char key[RHIZOME_CRYPT_KEY_BYTES];
-  unsigned char nonce[crypto_stream_xsalsa20_NONCEBYTES];
+  unsigned char nonce[crypto_box_NONCEBYTES];
 };
 
 struct rhizome_read_buffer{
@@ -774,7 +745,7 @@ struct rhizome_read
   uint8_t crypt;
   rhizome_filehash_t id;
   unsigned char key[RHIZOME_CRYPT_KEY_BYTES];
-  unsigned char nonce[crypto_stream_xsalsa20_NONCEBYTES];
+  unsigned char nonce[crypto_box_NONCEBYTES];
 };
 
 int rhizome_received_content(const unsigned char *bidprefix,uint64_t version, 
