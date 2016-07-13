@@ -394,10 +394,24 @@ void monitor_get_all_supported_codecs(unsigned char *codecs){
   }
 }
 
+static void monitor_announce_peer(struct subscriber *subscriber, int prior_reachable)
+{
+  monitor_tell_formatted(MONITOR_LINKS, "\nLINK:%d:%s:%s\n",
+    subscriber->hop_count,
+    subscriber->prior_hop ? alloca_tohex_sid_t(subscriber->prior_hop->sid) : "",
+    alloca_tohex_sid_t(subscriber->sid));
+
+  if ((prior_reachable & REACHABLE) && (!(subscriber->reachable & REACHABLE)))
+    monitor_tell_formatted(MONITOR_PEERS, "\nOLDPEER:%s\n", alloca_tohex_sid_t(subscriber->sid));
+  if ((!(prior_reachable & REACHABLE)) && (subscriber->reachable & REACHABLE))
+    monitor_tell_formatted(MONITOR_PEERS, "\nNEWPEER:%s\n", alloca_tohex_sid_t(subscriber->sid));
+}
+DEFINE_TRIGGER(link_change, monitor_announce_peer);
+
 static int monitor_announce_all_peers(struct subscriber *subscriber, void *UNUSED(context))
 {
   if (subscriber->reachable&REACHABLE)
-    monitor_announce_peer(&subscriber->sid);
+    monitor_announce_peer(subscriber, REACHABLE_NONE);
   return 0;
 }
 
@@ -423,7 +437,7 @@ static int monitor_set(const struct cli_parsed *parsed, struct cli_context *cont
     c->flags|=MONITOR_DNAHELPER;
   }else if (strcase_startswith(parsed->args[1],"links", NULL)){
     c->flags|=MONITOR_LINKS;
-    link_state_announce_links();
+    enum_subscribers(NULL, monitor_announce_all_peers, NULL);
   }else if (strcase_startswith(parsed->args[1],"quit", NULL)){
     c->flags|=MONITOR_QUIT;
   }else if (strcase_startswith(parsed->args[1],"interface", NULL)){
@@ -614,7 +628,7 @@ static int monitor_help(const struct cli_parsed *parsed, struct cli_context *con
   return 0;
 }
 
-int monitor_announce_bundle(rhizome_manifest *m)
+static void monitor_announce_bundle(rhizome_manifest *m)
 {
   char msg[1024];
   int len = snprintf(msg,1024,"\n*%zd:BUNDLE:%s\n",
@@ -624,26 +638,8 @@ int monitor_announce_bundle(rhizome_manifest *m)
   len+=m->manifest_all_bytes;
   msg[len++]='\n';
   monitor_tell_clients(msg, len, MONITOR_RHIZOME);
-  return 0;
 }
-
-int monitor_announce_peer(const sid_t *sidp)
-{
-  return monitor_tell_formatted(MONITOR_PEERS, "\nNEWPEER:%s\n", alloca_tohex_sid_t(*sidp));
-}
-
-int monitor_announce_unreachable_peer(const sid_t *sidp)
-{
-  return monitor_tell_formatted(MONITOR_PEERS, "\nOLDPEER:%s\n", alloca_tohex_sid_t(*sidp));
-}
-
-int monitor_announce_link(int hop_count, struct subscriber *transmitter, struct subscriber *receiver)
-{
-  return monitor_tell_formatted(MONITOR_LINKS, "\nLINK:%d:%s:%s\n", 
-    hop_count,
-    transmitter ? alloca_tohex_sid_t(transmitter->sid) : "",
-    alloca_tohex_sid_t(receiver->sid));
-}
+DEFINE_TRIGGER(bundle_add, monitor_announce_bundle);
 
 // test if any monitor clients are interested in a particular type of event
 int monitor_client_interested(int mask){
@@ -662,10 +658,7 @@ int monitor_tell_clients(char *msg, int msglen, int mask)
   for(i=monitor_socket_count -1;i>=0;i--) {
     if (monitor_sockets[i].flags & mask) {
       // DEBUG("Writing AUDIOPACKET to client");
-      if ( set_nonblock(monitor_sockets[i].alarm.poll.fd) == -1
-	|| write_all_nonblock(monitor_sockets[i].alarm.poll.fd, msg, msglen) == -1
-	|| set_block(monitor_sockets[i].alarm.poll.fd) == -1
-      ) {
+      if ( write_all_nonblock(monitor_sockets[i].alarm.poll.fd, msg, msglen) == -1) {
 	INFOF("Tearing down monitor client #%d", i);
 	monitor_close(&monitor_sockets[i]);
       }
@@ -685,3 +678,15 @@ int monitor_tell_formatted(int mask, char *fmt, ...){
   monitor_tell_clients(msg, n, mask);
   return 0;
 }
+
+static void monitor_interface_change(struct overlay_interface *interface){
+  unsigned i = interface - overlay_interfaces;
+  if (interface->state==INTERFACE_STATE_UP)
+    monitor_tell_formatted(MONITOR_INTERFACE, "\nINTERFACE:%u:%s:UP\n", i, interface->name);
+  else if(interface->state==INTERFACE_STATE_DOWN)
+    monitor_tell_formatted(MONITOR_INTERFACE, "\nINTERFACE:%u:%s:DOWN\n", i, interface->name);
+}
+
+DEFINE_TRIGGER(iupdown, monitor_interface_change);
+
+

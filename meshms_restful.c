@@ -209,7 +209,7 @@ static int restful_meshms_conversationlist_json(httpd_request *r, const char *re
   r->u.mclist.rowcount = 0;
   r->u.mclist.conv = NULL;
   enum meshms_status status;
-  if (meshms_failed(status = meshms_conversations_list(&r->sid1, NULL, &r->u.mclist.conv)))
+  if (meshms_failed(status = meshms_conversations_list(NULL, &r->sid1, NULL, &r->u.mclist.conv)))
     return http_request_meshms_response(r, 0, NULL, status);
   if (r->u.mclist.conv != NULL)
     meshms_conversation_iterator_start(&r->u.mclist.iter, r->u.mclist.conv);
@@ -609,6 +609,8 @@ static int send_mime_part_end(struct http_request *hr)
 static int send_mime_part_header(struct http_request *hr, const struct mime_part_headers *h)
 {
   httpd_request *r = (httpd_request *) hr;
+  if (!h->content_disposition.type[0])
+    return http_response_content_disposition(r, 415, "Missing", h->content_disposition.type);
   if (strcmp(h->content_disposition.type, "form-data") != 0)
     return http_response_content_disposition(r, 415, "Unsupported", h->content_disposition.type);
   if (strcmp(h->content_disposition.name, PART_MESSAGE) == 0) {

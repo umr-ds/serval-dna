@@ -45,7 +45,9 @@ default_config() {
       set debug.rhizome_manifest on \
       set debug.rhizome_ads on \
       set debug.rhizome_tx on \
-      set debug.rhizome_rx on
+      set debug.rhizome_rx on \
+      set debug.rhizome_sync_keys on \
+      set debug.msp on
 }
 
 # Called by start_servald_instances for each instance.
@@ -463,14 +465,16 @@ setup_CorruptPayload() {
    rhizome_add_file file1 1024
    start_servald_instances +A +B
    wait_until bundle_received_by $BID:$VERSION +B
+   set_instance +A
+   stop_servald_server
    assert cmp file1 "$SERVALINSTANCE_PATH/blob/$FILEHASH"
    create_file file2 1024
+   assert --error-on-fail ! cmp file1 file2
    cp file2 "$SERVALINSTANCE_PATH/blob/$FILEHASH"
    execute --exit-status=255 $servald rhizome extract file $BID file1a
    # TODO at the moment, the re-fetch is only triggered by restarting the
    # daemon.  Eventually (when the Rhizome Rank is implemented), the re-fetch
    # shoud be automatic and immediate without restarting the daemon.
-   stop_servald_server
    start_servald_server
 }
 test_CorruptPayload() {
@@ -489,12 +493,13 @@ setup_MissingPayload() {
    assert cmp file1 "$SERVALINSTANCE_PATH/blob/$FILEHASH"
    start_servald_instances +A +B
    wait_until bundle_received_by $BID:$VERSION +B
+   set_instance +A
+   stop_servald_server
    rm -f "$SERVALINSTANCE_PATH/blob/$FILEHASH"
    execute --exit-status=1 --stderr $servald rhizome extract file $BID file1a
    # TODO at the moment, the re-fetch is only triggered by restarting the
    # daemon.  Eventually (when the Rhizome Rank is implemented), the re-fetch
    # shoud be automatic and immediate without restarting the daemon.
-   stop_servald_server
    start_servald_server
 }
 test_MissingPayload() {
@@ -591,6 +596,7 @@ EOF
 }
 test_HttpImport() {
    executeOk curl \
+	 -H "Expect:" \
          --silent --fail --show-error \
          --output http.output \
          --dump-header http.headers \
@@ -618,7 +624,11 @@ setup_HttpAddLocal() {
 }
 test_HttpAddLocal() {
    echo 'File file1' >file1
-   executeOk curl --silent --form 'data=@file1' "http://${addr_localhost}:$PORTA/rhizome/secretaddfile" --output file1.manifest
+   executeOk curl \
+	-H "Expect:" \
+	--silent \
+	--form 'data=@file1' "http://${addr_localhost}:$PORTA/rhizome/secretaddfile" \
+	--output file1.manifest
    assert_manifest_complete file1.manifest
    executeOk_servald rhizome list
    assert_rhizome_list --fromhere=1 file1
@@ -769,7 +779,7 @@ start_radio_instance() {
       set debug.rhizome_rx on \
       set debug.radio_link on \
       set rhizome.advertise.interval 5000 \
-      set rhizome.rhizome_mdp_block_size 375 \
+      set rhizome.mdp.block_size 375 \
       set log.console.level debug \
       set log.console.show_pid on \
       set log.console.show_time on \
@@ -839,4 +849,53 @@ teardown_SimulatedRadio2() {
    tfw_cat "$SERVALD_VAR/radioerr"
 }
 
+doc_ManyFiles="Synchronise many small files, with some files in common"
+setup_ManyFiles() {
+   setup_servald
+   foreach_instance +A +B +C +D create_single_identity
+   bundlesA=()
+   bundlesB=()
+   bundlesC=()
+   bundlesD=()
+
+   for i in `seq 1 10`
+   do
+      tfw_log "Adding common file-$i"
+      tfw_nolog set_instance +A
+      create_file file-$i 100
+      tfw_nolog executeOk_servald rhizome add file "${!sidvar}" file-$i file-$i.manifest
+      tfw_nolog set_instance +B
+      tfw_nolog executeOk_servald rhizome import bundle file-$i file-$i.manifest
+      tfw_nolog set_instance +C
+      tfw_nolog executeOk_servald rhizome import bundle file-$i file-$i.manifest
+      tfw_nolog set_instance +D
+      tfw_nolog executeOk_servald rhizome import bundle file-$i file-$i.manifest
+   done
+   for i in A B C D
+   do
+      eval "bundles$i=()"
+      set_instance +$i
+      for j in `seq 1 10`
+      do
+         tfw_log "Adding file$i-$j"
+         create_file file$i-$j $(( $j * 500 ))
+         tfw_nolog executeOk_servald rhizome add file "${!sidvar}" file$i-$j file$i-$j.manifest
+         tfw_nolog extract_stdout_manifestid BID
+         tfw_nolog extract_stdout_version VERSION
+         eval "bundles$i+=(\$BID:\$VERSION)"
+      done
+   done
+
+   start_servald_instances +A +B +C +D
+}
+
+test_ManyFiles() {
+   wait_until --timeout=30 bundle_received_by \
+	${bundlesB[*]} ${bundlesC[*]} ${bundlesD[*]} +A \
+	${bundlesA[*]} ${bundlesC[*]} ${bundlesD[*]} +B \
+	${bundlesA[*]} ${bundlesB[*]} ${bundlesD[*]} +C \
+	${bundlesA[*]} ${bundlesB[*]} ${bundlesC[*]} +D
+}
+
 runTests "$@"
+

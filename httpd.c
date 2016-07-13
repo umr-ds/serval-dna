@@ -222,6 +222,7 @@ static void httpd_server_finalise_http_request(struct http_request *hr)
   if (current_httpd_requests == NULL) {
     assert(current_httpd_request_count == 0);
   }
+  rhizome_bundle_result_free(&r->bundle_result);
   if (r->manifest) {
     rhizome_manifest_free(r->manifest);
     r->manifest = NULL;
@@ -242,6 +243,7 @@ void httpd_server_poll(struct sched_ent *alarm)
       if (errno && errno != EAGAIN)
 	WARN_perror("accept");
     } else {
+      set_nonblock(sock);
       ++http_request_uuid_counter;
       strbuf_sprintf(&log_context, "httpd/%u", http_request_uuid_counter);
       struct sockaddr_in *peerip=NULL;
@@ -272,8 +274,8 @@ void httpd_server_poll(struct sched_ent *alarm)
 	}
 	current_httpd_requests = request;
 	++current_httpd_request_count;
-	request->payload_status = INVALID_RHIZOME_PAYLOAD_STATUS;
-	request->bundle_status = INVALID_RHIZOME_BUNDLE_STATUS;
+	request->payload_status = INVALID_RHIZOME_PAYLOAD_STATUS; // will cause FATAL unless set
+	request->bundle_result = INVALID_RHIZOME_BUNDLE_RESULT; // will cause FATAL unless set
 	if (peerip)
 	  request->http.client_sockaddr_in = *peerip;
 	request->http.uuid = http_request_uuid_counter;
@@ -484,9 +486,16 @@ int http_response_content_type(httpd_request *r, uint16_t result, const char *wh
 
 int http_response_content_disposition(httpd_request *r, uint16_t result, const char *what, const char *type)
 {
-  DEBUGF(httpd, "%s Content-Disposition: %s %s", what, type);
+  DEBUGF(httpd, "%s Content-Disposition%s%s", what,
+	 type && type[0] ? ": " : "",
+	 type && type[0] ? type : " header"
+	);
   strbuf msg = strbuf_alloca(100);
-  strbuf_sprintf(msg, "%s Content-Disposition: %s", what, type);
+  strbuf_sprintf(msg, "%s Content-Disposition", what);
+  if (type && type[0])
+    strbuf_sprintf(msg, ": %s", type);
+  else
+    strbuf_puts(msg, " header");
   http_request_simple_response(&r->http, result, strbuf_str(msg)); // Unsupported Media Type
   return result;
 }

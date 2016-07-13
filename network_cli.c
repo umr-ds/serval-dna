@@ -68,6 +68,11 @@ static int app_mdp_ping(const struct cli_parsed *parsed, struct cli_context *con
     interval_ms = 1000;
     
   /* First sequence number in the echo frames */
+  {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    srandom((getpid() << 16) ^ tv.tv_sec ^ tv.tv_usec);
+  }
   uint32_t firstSeq = random();
   uint32_t sequence_number = firstSeq;
 
@@ -261,7 +266,6 @@ static int app_trace(const struct cli_parsed *parsed, struct cli_context *contex
       || cli_arg(parsed, "SID", &sidhex, str_is_subscriber_id, NULL) == -1)
     return -1;
   
-  sid_t srcsid;
   sid_t dstsid;
   if (str_to_sid_t(&dstsid, sidhex) == -1)
     return WHY("str_to_sid_t() failed");
@@ -270,72 +274,83 @@ static int app_trace(const struct cli_parsed *parsed, struct cli_context *contex
   str_to_uint64_interval_ms(opt_timeout, &timeout_ms, NULL);
   if (timeout_ms == 0)
     timeout_ms = 60 * 60000; // 1 hour...
-    
-  if ((mdp_sockfd = overlay_mdp_client_socket()) < 0)
+
+  if ((mdp_sockfd = mdp_socket()) < 0)
     return WHY("Cannot create MDP socket");
-  mdp_port_t port=32768+(random()&32767);
-  if (overlay_mdp_getmyaddr(mdp_sockfd, 0, &srcsid)) {
-    overlay_mdp_client_close(mdp_sockfd);
-    return WHY("Could not get local address");
-  }
-  if (overlay_mdp_bind(mdp_sockfd, &srcsid, port)) {
-    overlay_mdp_client_close(mdp_sockfd);
-    return WHY("Could not bind to MDP socket");
-  }
-  
+
+  int ret=-1;
+
+  struct mdp_header mdp_header;
+  bzero(&mdp_header, sizeof mdp_header);
+
+  mdp_header.local.sid = BIND_PRIMARY;
+
+  if (mdp_bind(mdp_sockfd, &mdp_header.local))
+    goto end;
+
+  mdp_header.qos = OQ_MESH_MANAGEMENT;
+  mdp_header.ttl = PAYLOAD_TTL_DEFAULT;
+  mdp_header.remote.sid = mdp_header.local.sid;
+  mdp_header.remote.port = MDP_PORT_TRACE;
+
   cli_printf(context, "Tracing the network path from %s to %s", 
-	alloca_tohex_sid_t(srcsid), alloca_tohex_sid_t(dstsid));
+    alloca_tohex_sid_t(mdp_header.local.sid),
+    alloca_tohex_sid_t(dstsid));
+
   cli_delim(context, "\n");
   cli_flush(context);
-  // TODO keep sending packets till we get a response?
-  int ret=0;
-  time_ms_t end = gettime_ms() + timeout_ms;
-  overlay_mdp_frame mdp;
-  do{
-    bzero(&mdp, sizeof(mdp));
-    
-    mdp.out.src.sid = srcsid;
-    mdp.out.dst.sid = srcsid;
-    mdp.out.src.port=port;
-    mdp.out.dst.port=MDP_PORT_TRACE;
-    mdp.packetTypeAndFlags=MDP_TX;
-    struct overlay_buffer *b = ob_static(mdp.out.payload, sizeof(mdp.out.payload));
+  time_ms_t end_time = gettime_ms() + timeout_ms;
+  uint8_t payload[MDP_MTU];
+  struct overlay_buffer *b = ob_static(payload, sizeof payload);
+
+  while(1){
+    ob_clear(b);
+    ob_limitsize(b,sizeof payload);
     ob_append_byte(b, SID_SIZE);
-    ob_append_bytes(b, srcsid.binary, SID_SIZE);
+    ob_append_bytes(b, mdp_header.local.sid.binary, SID_SIZE);
     ob_append_byte(b, SID_SIZE);
     ob_append_bytes(b, dstsid.binary, SID_SIZE);
     if (ob_overrun(b)){
       ret = WHY("overlay buffer overrun");
+      goto end;
+    }
+    size_t len = ob_position(b);
+
+    if (mdp_send(mdp_sockfd, &mdp_header, payload, len))
+      goto end;
+    ssize_t recv_len = mdp_poll_recv(mdp_sockfd, gettime_ms()+500, &mdp_header, payload, sizeof payload);
+    if (recv_len == -1)
+      break;
+    if (recv_len>0){
+      ob_clear(b);
+      ob_limitsize(b,recv_len);
+      uint8_t len = ob_get(b);
+      ob_get_bytes_ptr(b, len);
+      len = ob_get(b);
+      ob_get_bytes_ptr(b, len);
+      // TODO Compare SID's?
+
+      int i=0;
+      while(ob_remaining(b)>0){
+	len = ob_get(b);
+	cli_put_long(context, i, ":");
+	uint8_t *sid = ob_get_bytes_ptr(b, len);
+	cli_put_string(context, alloca_tohex(sid, len), "\n");
+	i++;
+      }
+      ret = 0;
       break;
     }
-    mdp.out.payload_length = ob_position(b);
-    ret = overlay_mdp_send(mdp_sockfd, &mdp, MDP_AWAITREPLY, 500);
-    ob_free(b);
-  }while(ret && gettime_ms() < end);
-  
-  if (ret)
-    WHYF("overlay_mdp_send returned %d, %s", ret, mdp.error.message);
-  if (ret == 0) {
-    int offset=0;
-    {
-      // skip the first two sid's
-      uint len = mdp.out.payload[offset++];
-      offset+=len;
-      if (offset<mdp.out.payload_length){
-	len = mdp.out.payload[offset++];
-	offset+=len;
-      }
-    }
-    int i=0;
-    while(offset<mdp.out.payload_length){
-      uint len = mdp.out.payload[offset++];
-      cli_put_long(context, i, ":");
-      cli_put_string(context, alloca_tohex(&mdp.out.payload[offset], len), "\n");
-      offset+=len;
-      i++;
+
+    if (gettime_ms()>=end_time){
+      WHY("Timeout waiting for a response");
+      goto end;
     }
   }
-  overlay_mdp_client_close(mdp_sockfd);
+
+
+end:
+  mdp_close(mdp_sockfd);
   return ret;
 }
 
@@ -430,73 +445,133 @@ static int app_count_peers(const struct cli_parsed *parsed, struct cli_context *
 
 DEFINE_CMD(app_route_print, 0,
   "Print the routing table",
-  "route","print");
+  "route","print","[--monitor]");
 static int app_route_print(const struct cli_parsed *parsed, struct cli_context *context)
 {
   int mdp_sockfd;
+  int opt_monitor = 0 == cli_arg(parsed, "--monitor", NULL, NULL, NULL);
   DEBUG_cli_parsed(verbose, parsed);
     
-  if ((mdp_sockfd = overlay_mdp_client_socket()) < 0)
+  if ((mdp_sockfd = mdp_socket()) < 0)
     return WHY("Cannot create MDP socket");
 
-  overlay_mdp_frame mdp;
-  bzero(&mdp,sizeof(mdp));
-  
-  mdp.packetTypeAndFlags=MDP_ROUTING_TABLE;
-  overlay_mdp_send(mdp_sockfd, &mdp,0,0);
-  
+  struct mdp_header mdp_header;
+  bzero(&mdp_header, sizeof mdp_header);
+
+  mdp_header.local.sid = SID_INTERNAL;
+  mdp_header.local.port = MDP_ROUTE_TABLE;
+  mdp_header.remote.sid = SID_ANY;
+  mdp_header.remote.port = MDP_ROUTE_TABLE;
+  if (opt_monitor)
+    mdp_header.flags = MDP_BIND;
+
+  int ret=-1;
+
+  if (mdp_send(mdp_sockfd, &mdp_header, NULL, 0))
+    goto end;
+
   const char *names[]={
     "Subscriber id",
     "Routing flags",
     "Interface",
-    "Next hop"
+    "Next hop",
+    "Prior hop"
   };
-  cli_columns(context, 4, names);
+  cli_columns(context, 5, names);
   size_t rowcount=0;
-  
-  while(overlay_mdp_client_poll(mdp_sockfd, 200)){
-    overlay_mdp_frame rx;
-    int ttl;
-    if (overlay_mdp_recv(mdp_sockfd, &rx, 0, &ttl))
-      continue;
-    
-    int ofs=0;
-    while(ofs + sizeof(struct overlay_route_record) <= rx.out.payload_length){
-      struct overlay_route_record *p=&rx.out.route_record;
-      ofs+=sizeof(struct overlay_route_record);
-      
-      if (p->reachable==REACHABLE_NONE)
-	continue;
 
-      cli_put_string(context, alloca_tohex_sid_t(p->sid), ":");
-      char flags[32];
-      strbuf b = strbuf_local_buf(flags);
-      
-      switch (p->reachable){
-	case REACHABLE_SELF:
-	  strbuf_puts(b, "SELF");
+  sigIntFlag = 0;
+  signal(SIGINT, sigIntHandler);
+  time_ms_t timeout = gettime_ms() + 5000;
+
+  uint8_t payload[MDP_MTU];
+  struct overlay_buffer *buff = ob_static(payload, sizeof payload);
+  while(!sigIntFlag){
+    ssize_t recv_len = mdp_poll_recv(mdp_sockfd, gettime_ms()+1000, &mdp_header, payload, sizeof payload);
+    if (recv_len == -1)
+      break;
+    if (recv_len>0){
+      ob_clear(buff);
+      ob_limitsize(buff, recv_len);
+      while(ob_remaining(buff)>0){
+	sid_t *sid = (sid_t *)ob_get_bytes_ptr(buff, SID_SIZE);
+	if (!sid)
 	  break;
-	case REACHABLE_BROADCAST:
-	  strbuf_puts(b, "BROADCAST");
+	int reachable = ob_get(buff);
+	if (reachable<0)
 	  break;
-	case REACHABLE_UNICAST:
-	  strbuf_puts(b, "UNICAST");
-	  break;
-	case REACHABLE_INDIRECT:
-	  strbuf_puts(b, "INDIRECT");
-	  break;
-	default:
-	  strbuf_sprintf(b, "%d", p->reachable);
+	int hop_count =-1;
+	sid_t *next_hop = NULL;
+	sid_t *prior_hop = NULL;
+	int interface_id =-1;
+	const char *interface_name = NULL;
+
+	if (reachable & REACHABLE){
+	  hop_count = ob_get(buff);
+	  if (hop_count<0)
+	    break;
+	  if (hop_count>1){
+	    next_hop = (sid_t *)ob_get_bytes_ptr(buff, SID_SIZE);
+	    if (!next_hop)
+	      break;
+	    if (hop_count>2){
+	      prior_hop = (sid_t *)ob_get_bytes_ptr(buff, SID_SIZE);
+	      if (!prior_hop)
+		break;
+	    }
+	  }else{
+	    interface_id = ob_get(buff);
+	    if (interface_id<0)
+	      break;
+	    interface_name = ob_get_str_ptr(buff);
+	    if (!interface_name)
+	      break;
+	  }
+	}
+
+	cli_put_string(context, alloca_tohex_sid_t(*sid), ":");
+	char flags[32];
+	strbuf b = strbuf_local_buf(flags);
+
+	switch (reachable){
+	  case REACHABLE_NONE:
+	    strbuf_puts(b, "UNREACHABLE");
+	    break;
+	  case REACHABLE_SELF:
+	    strbuf_puts(b, "SELF");
+	    break;
+	  case REACHABLE_BROADCAST:
+	    strbuf_puts(b, "BROADCAST");
+	    break;
+	  case REACHABLE_UNICAST:
+	    strbuf_puts(b, "UNICAST");
+	    break;
+	  case REACHABLE_INDIRECT:
+	    strbuf_puts(b, "INDIRECT");
+	    break;
+	  default:
+	    strbuf_sprintf(b, "%d", reachable);
+	}
+	cli_put_string(context, strbuf_str(b), ":");
+	cli_put_string(context, interface_name, ":");
+	cli_put_string(context, next_hop?alloca_tohex_sid_t(*next_hop):"", ":");
+	cli_put_string(context, prior_hop?alloca_tohex_sid_t(*prior_hop):"", "\n");
+	rowcount++;
       }
-      cli_put_string(context, strbuf_str(b), ":");
-      cli_put_string(context, p->interface_name, ":");
-      cli_put_string(context, alloca_tohex_sid_t(p->neighbour), "\n");
-      rowcount++;
     }
+
+    if (!opt_monitor && ((mdp_header.flags & MDP_FLAG_CLOSE) || gettime_ms() > timeout))
+      break;
   }
-  overlay_mdp_client_close(mdp_sockfd);
+  ob_free(buff);
+  signal(SIGINT, SIG_DFL);
+  sigIntFlag = 0;
+  ret = 0;
   cli_row_count(context, rowcount);
-  return 0;
+
+end:
+  mdp_close(mdp_sockfd);
+  return ret;
 }
 
 DEFINE_CMD(app_network_scan, 0,
@@ -606,6 +681,11 @@ static int app_dna_lookup(const struct cli_parsed *parsed, struct cli_context *c
     return WHY("Cannot create MDP socket");
 
   /* Bind to MDP socket and await confirmation */
+  {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    srandom((getpid() << 16) ^ tv.tv_sec ^ tv.tv_usec);
+  }
   sid_t srcsid;
   mdp_port_t port=32768+(random()&32767);
   if (overlay_mdp_getmyaddr(mdp_sockfd, 0, &srcsid)) {
@@ -712,6 +792,11 @@ static int app_reverse_lookup(const struct cli_parsed *parsed, struct cli_contex
   if (cli_arg(parsed, "timeout", &delay, NULL, "3000") == -1)
     return -1;
 
+  {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    srandom((getpid() << 16) ^ tv.tv_sec ^ tv.tv_usec);
+  }
   mdp_port_t port=32768+(random()&0xffff);
 
   sid_t srcsid;

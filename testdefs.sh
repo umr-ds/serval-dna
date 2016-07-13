@@ -28,6 +28,8 @@ addr_localhost="127.0.0.1"
 declare -a instance_stack=()
 
 # Some useful string constants.
+LF='
+'
 CR=''
 HT='	'
 
@@ -115,7 +117,7 @@ unpack_stdout_list() {
       for hdr in "${header[@]}"; do
          hdr="${hdr//[^A-Za-z0-9_]/_}"
          # hdr="${hdr^^*}" would do in Bash-4.0 and later
-         hdr="$(echo "$hdr" | sed -e 's/.*/\U&/')"
+         hdr="$(echo "$hdr" | tr a-z A-Z)"
          colvars+=("$hdr")
       done
       local -a row
@@ -805,13 +807,15 @@ add_servald_interface() {
          set interfaces.$INTERFACE.type $TYPE \
          set interfaces.$INTERFACE.dummy_address 127.0.$INTERFACE.$instance_number \
          set interfaces.$INTERFACE.dummy_netmask 255.255.255.224
+         set interfaces.$INTERFACE.idle_tick_ms 500
    else
       mkdir -p "$SERVALD_VAR/dummy$INTERFACE/"
       executeOk_servald config \
          set server.interface_path $SERVALD_VAR \
          set interfaces.$INTERFACE.socket_type $SOCKET_TYPE \
          set interfaces.$INTERFACE.file dummy$INTERFACE/$instance_name \
-         set interfaces.$INTERFACE.type $TYPE
+         set interfaces.$INTERFACE.type $TYPE \
+         set interfaces.$INTERFACE.idle_tick_ms 500
    fi
 }
 
@@ -882,17 +886,16 @@ instances_see_each_other() {
 # - ensure that the given version of the curl(1) utility is available
 # - remove all proxy settings
 setup_curl() {
+   CURL=$(type -P curl) || error "curl(1) command is not present"
    local minversion="${1?}"
-   local ver="$(curl --version | tr '\n' ' ')" 
+   local ver="$("$CURL" --version | tr '\n' ' ')"
    case "$ver" in
-   '')
-      fail "curl(1) command is not present"
-      ;;
    curl\ *\ Protocols:*\ http\ *)
       set -- $ver
-      tfw_cmp_version "$2" 7
+      tfw_cmp_version "$2" "$minversion"
       case $? in
       0|2)
+         export CURL
          unset http_proxy
          unset HTTP_PROXY
          unset HTTPS_PROXY
@@ -900,8 +903,50 @@ setup_curl() {
          return 0
          ;;
       esac
-      fail "curl(1) version $2 is not adequate (expecting $minversion or higher)"
+      error "$CURL version $2 is not adequate (expecting $minversion or higher)"
       ;;
    esac
-   fail "cannot parse output of curl --version: $ver"
+   error "cannot parse output of $CURL --version: $ver"
+}
+
+# Guard function:
+CURL=
+curl() {
+   [ -x "$CURL" ] || error "missing call to setup_curl in the fixture"
+   "$CURL" "$@"
+}
+
+# Setup function:
+# - ensure that the netcat6 nc6(1) utility is available
+setup_netcat6() {
+   NETCAT6=$(type -P nc6) || error "nc6(1) command is not present"
+   local minversion="${1:-1.0}"
+   local ver="$("$NETCAT6" --version | tr '\n' ' ')"
+   case "$ver" in
+   nc6\ version\ *)
+      set -- $ver
+      tfw_cmp_version "$3" "$minversion"
+      case $? in
+      0|2)
+         export NETCAT6
+         return 0
+         ;;
+      esac
+      error "$NETCAT6 version $3 is not adequate (expecting $minversion or higher)"
+      ;;
+   esac
+   error "cannot parse output of $NETCAT6 --version: $ver"
+}
+
+# Guard functions.
+NETCAT6=
+nc6() {
+   [ -x "$NETCAT6" ] || error "missing call to setup_netcat6 in the fixture"
+   "$NETCAT6" "$@"
+}
+nc() {
+   error "do not use nc; instead use nc6(1) after calling setup_netcat6 in the fixture"
+}
+netcat() {
+   error "do not use netcat; instead use nc6(1) after calling setup_netcat6 in the fixture"
 }

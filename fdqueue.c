@@ -252,6 +252,7 @@ int _watch(struct __sourceloc __whence, struct sched_ent *alarm)
     DEBUGF(io, "Adding watch %s, #%d for %s", alloca_alarm_name(alarm), alarm->poll.fd, alloca_poll_events(alarm->poll.events));
     if (fdcount>=MAX_WATCHED_FDS)
       return WHY("Too many file handles to watch");
+    set_nonblock(alarm->poll.fd);
     fd_callbacks[fdcount]=alarm;
     alarm->poll.revents = 0;
     alarm->_poll_index=fdcount;
@@ -299,8 +300,13 @@ static void call_alarm(struct sched_ent *alarm, int revents)
   struct call_stats call_stats;
   call_stats.totals = alarm->stats;
   
-  DEBUGF(io, "Calling alarm/callback %p %s", alarm, alloca_alarm_name(alarm));
-
+  DEBUGF(io, "Calling alarm/callback %p %s with revents %x%s%s%s%s", 
+    alarm, alloca_alarm_name(alarm), revents,
+    revents&POLLIN?" POLLIN":"",
+    revents&POLLOUT?" POLLOUT":"",
+    revents&POLLERR?" POLLERR":"",
+    revents&POLLHUP?" POLLHUP":""
+  );
   if (call_stats.totals)
     fd_func_enter(__HERE__, &call_stats);
   
@@ -420,18 +426,11 @@ int fd_poll2(time_ms_t (*waiting)(time_ms_t, time_ms_t, time_ms_t), void (*wokeu
     for(i=fdcount -1;i>=0;i--){
       if (fd_callbacks[i] && fd_callbacks[i]->poll.fd == fds[i].fd && fds[i].revents) {
 	errno=0;
-	int fd = fds[i].fd;
-	set_nonblock(fd);
 	// Work around OSX behaviour that doesn't set POLLERR on 
 	// devices that have been deconfigured, e.g., a USB serial adapter
 	// that has been removed.
 	if (errno == ENXIO) fds[i].revents|=POLLERR;
 	call_alarm(fd_callbacks[i], fds[i].revents);
-	// The alarm may have closed and unwatched the descriptor, make sure this descriptor still matches
-	if (i<fdcount && fds[i].fd == fd){
-	  if (set_block(fds[i].fd))
-	    FATALF("Alarm %p %s has a bad descriptor that wasn't closed!", fd_callbacks[i], alloca_alarm_name(fd_callbacks[i]));
-	}
       }
     }
     // time may have passed while processing IO, or processing IO could trigger a new overdue alarm

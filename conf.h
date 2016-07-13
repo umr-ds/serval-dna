@@ -251,8 +251,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #define CFUNSUPPORTED       (1<<7)
 #define CF__SUB_SHIFT       16
 #define CFSUB(f)            ((f) << CF__SUB_SHIFT)
-#define CF__SUBFLAGS        CFSUB(~0)
-#define CF__FLAGS           (~0 & ~CF__SUBFLAGS)
+#define CF__FLAGS           (0xFFFF)
+#define CF__SUBFLAGS        (~CF__FLAGS)
 
 strbuf strbuf_cf_flags(strbuf, int);
 strbuf strbuf_cf_flag_reason(strbuf sb, int flags);
@@ -268,7 +268,7 @@ struct cf_om_node {
     const char *key; // points inside fullkey, do not free()
     const char *text; // malloc()
     size_t nodc;
-    struct cf_om_node *nodv[10]; // malloc()
+    struct cf_om_node *nodv[0]; // malloc()
 };
 
 int is_configvarname(const char *);
@@ -297,7 +297,7 @@ struct cf_om_iterator {
 void cf_om_iter_start(struct cf_om_iterator *, const struct cf_om_node *);
 int cf_om_iter_next(struct cf_om_iterator *);
 
-struct cf_om_node *cf_om_root;
+extern struct cf_om_node *cf_om_root;
 int cf_om_load(void);
 int cf_om_reload(void);
 int cf_om_save(void);
@@ -314,7 +314,7 @@ void _cf_warn_node_value(struct __sourceloc __whence, const struct cf_om_node *n
 void _cf_warn_no_array(struct __sourceloc __whence, const struct cf_om_node *node, int reason);
 void _cf_warn_unsupported_node(struct __sourceloc __whence, const struct cf_om_node *node);
 void _cf_warn_unsupported_children(struct __sourceloc __whence, const struct cf_om_node *parent);
-void _cf_warn_list_overflow(struct __sourceloc __whence, const struct cf_om_node *node);
+void _cf_warn_list_overflow(struct __sourceloc __whence, const struct cf_om_node *node, const char *fmt, ...);
 void _cf_warn_incompatible(struct __sourceloc __whence, const struct cf_om_node *node, const struct cf_om_node *orig);
 void _cf_warn_incompatible_children(struct __sourceloc __whence, const struct cf_om_node *parent);
 void _cf_warn_array_key(struct __sourceloc __whence, const struct cf_om_node *node, int reason);
@@ -330,7 +330,7 @@ void _cf_warn_array_value(struct __sourceloc __whence, const struct cf_om_node *
 #define cf_warn_no_array(node, reason)	     _cf_warn_no_array(__WHENCE__, node, reason)
 #define cf_warn_unsupported_node(node)	     _cf_warn_unsupported_node(__WHENCE__, node)
 #define cf_warn_unsupported_children(parent) _cf_warn_unsupported_children(__WHENCE__, parent)
-#define cf_warn_list_overflow(node)	     _cf_warn_list_overflow(__WHENCE__, node)
+#define cf_warn_list_overflow(node, fmt, ...) _cf_warn_list_overflow(__WHENCE__, node, fmt, ##__VA_ARGS__)
 #define cf_warn_incompatible(node, orig)     _cf_warn_incompatible(__WHENCE__, node, orig)
 #define cf_warn_incompatible_children(parent) _cf_warn_incompatible_children(__WHENCE__, parent)
 #define cf_warn_array_key(node, reason)	     _cf_warn_array_key(__WHENCE__, node, reason)

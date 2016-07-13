@@ -49,16 +49,15 @@ __thread keyring_file *keyring=NULL;
 
 static char pidfile_path[256];
 static int server_getpid = 0;
+static int server_pidfd = -1;
 static int server_bind();
 static void server_loop();
 static int server();
 static int server_write_pid();
-static int server_unlink_pid();
 static void signal_handler(int signal);
 static void serverCleanUp();
 static const char *_server_pidfile_path(struct __sourceloc __whence);
 #define server_pidfile_path() (_server_pidfile_path(__WHENCE__))
-void server_shutdown_check(struct sched_ent *alarm);
 
 void cli_cleanup(){
   /* clean up after ourselves */
@@ -71,6 +70,9 @@ void cli_cleanup(){
  */
 int server_pid()
 {
+  // Note that if we close another handle on the same file, our lock will disappear.
+  if (server_getpid == getpid())
+    return server_getpid;
   char dirname[1024];
   if (!FORMF_SERVAL_RUN_PATH(dirname, NULL))
     return -1;
@@ -84,15 +86,32 @@ int server_pid()
     return -1;
   const char *p = strrchr(ppath, '/');
   assert(p != NULL);
-  FILE *f = fopen(ppath, "r");
-  if (f == NULL) {
+  int pid = -1;
+  int fd = open(ppath, O_RDONLY);
+  if (fd == -1) {
     if (errno != ENOENT)
-      return WHYF_perror("fopen(%s,\"r\")", alloca_str_toprint(ppath));
+      return WHYF_perror("open(%s, O_RDONLY)", alloca_str_toprint(ppath));
   } else {
     char buf[20];
-    int pid = (fgets(buf, sizeof buf, f) != NULL) ? atoi(buf) : -1;
-    fclose(f);
-    if (pid > 0 && kill(pid, 0) != -1)
+    ssize_t len = read(fd, buf, sizeof buf);
+    if (len>0){
+      buf[len]=0;
+      pid = atoi(buf);
+    }
+    if (pid > 0){
+      // check that the server process still holds a lock
+      struct flock lock;
+      bzero(&lock, sizeof lock);
+      lock.l_type = F_RDLCK;
+      lock.l_start = 0;
+      lock.l_whence = SEEK_SET;
+      lock.l_len = len;
+      fcntl(fd, F_GETLK, &lock);
+      if (lock.l_type == F_UNLCK || lock.l_pid != pid)
+	pid = -1;
+    }
+    close(fd);
+    if (pid > 0)
       return pid;
     INFOF("Unlinking stale pidfile %s", ppath);
     unlink(ppath);
@@ -141,9 +160,9 @@ JNIEXPORT jint JNICALL Java_org_servalproject_servaldna_ServalDCommand_server(
   
   int pid = server_pid();
   if (pid < 0)
-    return -1;
+    return Throw(env, "java/lang/IllegalStateException", "Failed to read server pid ");
   if (pid>0)
-    return 1;
+    return Throw(env, "java/lang/IllegalStateException", "Server already running on pid ");
   
   cf_reload_strict();
   
@@ -176,20 +195,26 @@ JNIEXPORT jint JNICALL Java_org_servalproject_servaldna_ServalDCommand_server(
     }
   }
   
-  if (keyring_seed(keyring) == -1)
+  if (keyring_seed(keyring) == -1){
+    Throw(env, "java/lang/IllegalStateException", "Failed to seed keyring");
     goto end;
+  }
   
-  if (server_env)
+  if (server_env){
+    Throw(env, "java/lang/IllegalStateException", "Server java env variable already set");
     goto end;
+  }
   
   server_env = env;
   JniCallback = (*env)->NewGlobalRef(env, callback);
   
   ret = server_bind();
   
-  if (ret==-1)
+  if (ret==-1){
+    Throw(env, "java/lang/IllegalStateException", "Failed to bind sockets");
     goto end;
-  
+  }
+
   {
     jstring str = (jstring)(*env)->NewStringUTF(env, instance_path());
     (*env)->CallVoidMethod(env, callback, started, str, getpid(), mdp_loopback_port, httpd_server_port);
@@ -317,11 +342,6 @@ static int server_bind()
   
   time_ms_t now = gettime_ms();
   
-  // Periodically check for server shut down
-  RESCHEDULE(&ALARM_STRUCT(server_shutdown_check), now, TIME_MS_NEVER_WILL, now);
-  
-  overlay_mdp_bind_internal_services();
-  
   olsr_init_socket();
 
   /* Calculate (and possibly show) CPU usage stats periodically */
@@ -341,12 +361,13 @@ static void server_loop()
   while((serverMode==SERVER_RUNNING) && fd_poll2(waiting, wokeup))
     ;
   serverCleanUp();
-  
-  /* It is safe to unlink the pidfile here without checking whether it actually contains our own
-   * PID, because server_shutdown_check() will have been executed very recently (in fd_poll()), so
-   * if the code reaches here, the check has been done recently.
-   */
-  server_unlink_pid();
+
+  if (server_pidfd!=-1){
+    close(server_pidfd);
+    server_pidfd = -1;
+    const char *ppath = server_pidfile_path();
+    unlink(ppath);
+  }
   serverMode = 0;
 }
 
@@ -373,25 +394,38 @@ static int server_write_pid()
   const char *ppath = server_pidfile_path();
   if (ppath == NULL)
     return -1;
-  
-  FILE *f = fopen(ppath, "w");
-  if (!f)
-    return WHYF_perror("fopen(%s,\"w\")", alloca_str_toprint(ppath));
-  server_getpid = getpid();
-  fprintf(f,"%d\n", server_getpid);
-  fclose(f);
-  
-  return 0;
-}
 
-static int server_unlink_pid()
-{
-  /* Remove PID file to indicate that the server is no longer running */
-  const char *ppath = server_pidfile_path();
-  if (ppath == NULL)
-    return -1;
-  if (unlink(ppath) == -1)
-    WHYF_perror("unlink(%s)", alloca_str_toprint(ppath));
+  int fd = open(ppath, O_RDWR | O_CREAT | O_CLOEXEC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  if (fd==-1)
+    return WHYF_perror("open(%s, O_RDWR | O_CREAT)", alloca_str_toprint(ppath));
+
+  int pid = server_getpid = getpid();
+  char buf[20];
+  int len = snprintf(buf, sizeof buf, "%d", pid);
+
+  struct flock lock;
+  bzero(&lock, sizeof lock);
+  lock.l_type = F_WRLCK;
+  lock.l_start = 0;
+  lock.l_whence = SEEK_SET;
+  lock.l_len = len;
+  if (fcntl(fd, F_SETLK, &lock)==-1){
+    close(fd);
+    return WHYF_perror("fcntl(%d, F_SETLK, &lock)", fd);
+  }
+
+  if (ftruncate(fd, 0)==-1){
+    close(fd);
+    return WHYF_perror("ftruncate(%d, 0)", fd);
+  }
+
+  if (write(fd, buf, len)!=len){
+    close(fd);
+    return WHYF_perror("write(%d, %p, %d)", fd, buf, len);
+  }
+
+  // leave the pid file open!
+  server_pidfd = fd;
   return 0;
 }
 
@@ -472,10 +506,10 @@ void server_config_reload(struct sched_ent *alarm)
     INFO("server packet filter rules reloaded");
     break;
   }
-  if (alarm) {
+  if (alarm){
     time_ms_t now = gettime_ms();
     RESCHEDULE(alarm, 
-        now+config.server.config_reload_interval_ms,
+	now+config.server.config_reload_interval_ms,
 	TIME_MS_NEVER_WILL,
 	now+config.server.config_reload_interval_ms+100);
   }
@@ -592,29 +626,6 @@ void cf_on_config_change()
       RESCHEDULE(&ALARM_STRUCT(rhizome_fetch_status), now + 3000, TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL);
   }else if(rhizome_db){
     rhizome_close_db();
-  }
-}
-
-/* Called periodically by the server process in its main loop.
- */
-DEFINE_ALARM(server_shutdown_check);
-void server_shutdown_check(struct sched_ent *alarm)
-{
-  // TODO we should watch a descriptor and quit when it closes
-  /* If this server has been supplanted with another or Serval has been uninstalled, then its PID
-      file will change or be unaccessible.  In this case, shut down without all the cleanup.
-      Perform this check at most once per second.  */
-  static time_ms_t server_pid_time_ms = 0;
-  time_ms_t now = gettime_ms();
-  if (server_pid_time_ms == 0 || now - server_pid_time_ms > 1000) {
-    server_pid_time_ms = now;
-    if (server_pid() != server_getpid) {
-      WARNF("Server pid file no longer contains pid=%d -- shutting down without cleanup", server_getpid);
-      exit(1);
-    }
-  }
-  if (alarm){
-    RESCHEDULE(alarm, now+1000, TIME_MS_NEVER_WILL, now+1100);
   }
 }
 
@@ -759,7 +770,6 @@ static int app_server_start(const struct cli_parsed *parsed, struct cli_context 
 	     */
 	    DEBUG(verbose, "Grand-Child Process, reopening log");
 	    close_log_file();
-	    disable_log_stderr();
 	    int fd;
 	    if ((fd = open("/dev/null", O_RDWR, 0)) == -1)
 	      exit(WHY_perror("open(\"/dev/null\")"));
@@ -775,6 +785,7 @@ static int app_server_start(const struct cli_parsed *parsed, struct cli_context 
 	      exit(WHYF_perror("dup2(%d,stderr)", fd));
 	    if (fd > 2)
 	      (void)close(fd);
+	    redirect_stderr_to_log();
 	    /* The execpath option is provided so that a JNI call to "start" can be made which
 	       creates a new server daemon process with the correct argv[0].  Otherwise, the servald
 	       process appears as a process with argv[0] = "org.servalproject". */

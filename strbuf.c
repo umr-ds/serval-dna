@@ -35,14 +35,14 @@ strbuf strbuf_init(strbuf sb, char *buffer, ssize_t size)
 strbuf strbuf_reset(strbuf sb)
 {
   sb->current = sb->start;
-  if (sb->start)
-    *sb->start = '\0';
+  if (sb->current && (!sb->end || (sb->current <= sb->end)))
+    *sb->current = '\0';
   return sb;
 }
 
 strbuf strbuf_ncat(strbuf sb, const char *text, size_t len)
 {
-  if (sb->start && (!sb->end || (sb->current < sb->end))) {
+  if (len && sb->start && (!sb->end || (sb->current < sb->end))) {
     register size_t n = sb->end ? min(sb->end - sb->current, len) : len;
     char *c;
     for (c = sb->current; n && (*c = *text); --n, ++c, ++text)

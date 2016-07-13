@@ -171,6 +171,7 @@ static int append_link(struct subscriber *subscriber, void *context);
 static int neighbour_find_best_link(struct neighbour *n);
 
 struct neighbour *neighbours=NULL;
+unsigned neighbour_count=0;
 int route_version=0;
 
 struct network_destination * new_destination(struct overlay_interface *interface){
@@ -251,25 +252,6 @@ static struct link_state *get_link_state(struct subscriber *subscriber)
   return subscriber->link_state;
 }
 
-static void first_neighbour_found(){
-  // send rhizome sync periodically
-  time_ms_t now = gettime_ms();
-  RESCHEDULE(&ALARM_STRUCT(rhizome_sync_announce), 
-    now+1000, now+5000, TIME_MS_NEVER_WILL);
-  RESCHEDULE(&ALARM_STRUCT(link_send), 
-    now+10, now+10, now+30);
-}
-
-static void last_neighbour_gone(){
-  // stop trying to sync rhizome
-  RESCHEDULE(&ALARM_STRUCT(rhizome_sync_announce), 
-    TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL);
-  RESCHEDULE(&ALARM_STRUCT(link_send), 
-    TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL);
-  // one last re-scan of network paths to clean up the routing table
-  enum_subscribers(NULL, append_link, NULL);
-}
-
 static struct neighbour *get_neighbour(struct subscriber *subscriber, char create)
 {
   struct neighbour *n = neighbours;
@@ -279,8 +261,6 @@ static struct neighbour *get_neighbour(struct subscriber *subscriber, char creat
     n = n->_next;
   }
   if (create){
-    if (!neighbours)
-      first_neighbour_found();
     n = emalloc_zero(sizeof(struct neighbour));
     n->subscriber = subscriber;
     n->_next = neighbours;
@@ -290,7 +270,14 @@ static struct neighbour *get_neighbour(struct subscriber *subscriber, char creat
     n->rtt = 120;
     n->next_neighbour_update = gettime_ms() + 10;
     neighbours = n;
+    neighbour_count++;
+    
+    if (neighbour_count==1){
+      time_ms_t now = gettime_ms();
+      RESCHEDULE(&ALARM_STRUCT(link_send), now+10, now+10, now+30);
+    }
     DEBUGF(linkstate, "LINK STATE; new neighbour %s", alloca_tohex_sid_t(n->subscriber->sid));
+    CALL_TRIGGER(nbr_change, subscriber, 1, neighbour_count);
   }
   return n;
 }
@@ -455,7 +442,7 @@ next:
   if (next_hop == subscriber)
     next_hop = NULL;
   
-  if (set_reachable(subscriber, destination, next_hop))
+  if (set_reachable(subscriber, destination, next_hop, best_hop_count, transmitter))
     changed = 1;
   
   if (subscriber->identity && subscriber->reachable == REACHABLE_NONE){
@@ -465,28 +452,10 @@ next:
     DEBUGF2(overlayrouting, linkstate, "REACHABLE via self %s", alloca_tohex_sid_t(subscriber->sid));
   }
   
-  if (changed){
-    monitor_announce_link(best_hop_count, transmitter, subscriber);
+  if (changed)
     state->next_update = now+5;
-  }
 
   RETURN(best_link);
-}
-
-static int monitor_announce(struct subscriber *subscriber, void *UNUSED(context))
-{
-  if (subscriber->reachable & REACHABLE){
-    struct link_state *state = get_link_state(subscriber);
-    monitor_announce_link(state->hop_count, state->transmitter, subscriber);
-  }
-  return 0;
-}
-
-int link_state_announce_links(){
-  enum_subscribers(NULL, monitor_announce, NULL);
-  // announce ourselves as unreachable, mainly so that monitor clients will always get one link back
-  monitor_announce_link(0, NULL, my_subscriber);
-  return 0;
 }
 
 static int append_link_state(struct overlay_buffer *payload, char flags, 
@@ -610,6 +579,7 @@ static void clean_neighbours(time_ms_t now)
   struct neighbour **n_ptr = &neighbours;
   while (*n_ptr){
     struct neighbour *n = *n_ptr;
+    struct subscriber *subscriber = n->subscriber;
     
     // drop any inbound links that have expired
     struct link_in **list = &n->links;
@@ -617,7 +587,7 @@ static void clean_neighbours(time_ms_t now)
       struct link_in *link = *list;
       if (link->interface->state!=INTERFACE_STATE_UP || link->link_timeout < now){
 	DEBUGF(linkstate, "LINK STATE; link expired from neighbour %s on interface %s",
-	       alloca_tohex_sid_t(n->subscriber->sid),
+	       alloca_tohex_sid_t(subscriber->sid),
 	       link->interface->name);
         *list=link->_next;
         free(link);
@@ -643,21 +613,26 @@ static void clean_neighbours(time_ms_t now)
     }
     
     // when all links to a neighbour that we were directly routing to expire, force a routing calculation update
-    struct link_state *state = get_link_state(n->subscriber);
-    if (state->next_hop == n->subscriber && 
+    struct link_state *state = get_link_state(subscriber);
+    if (state->next_hop == subscriber && 
 	(n->link_in_timeout < now || !n->links || !alive) && 
 	state->route_version == route_version)
       route_version++;
       
     if (!n->links || !alive){
       free_neighbour(n_ptr);
+      neighbour_count--;
+      CALL_TRIGGER(nbr_change, subscriber, 0, neighbour_count);
+      if (neighbour_count==0){
+	// one last re-scan of network paths to clean up the routing table
+	enum_subscribers(NULL, append_link, NULL);
+	RESCHEDULE(&ALARM_STRUCT(link_send), 
+	  TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL);
+      }
     }else{
       n_ptr = &n->_next;
     }
   }
-  if (!neighbours)
-    last_neighbour_gone();
-
 }
 
 static void link_status_html(struct strbuf *b, struct subscriber *n, struct link *link)
@@ -900,7 +875,15 @@ static int send_neighbour_link(struct neighbour *n)
     n->best_link->ack_counter = ACK_WINDOW;
     n->last_update = now;
   }
-  n->next_neighbour_update = n->last_update + n->best_link->interface->destination->ifconfig.tick_ms;
+  {
+    struct overlay_interface *i = n->best_link->interface;
+    int delay = 0;
+    if (n->best_link->unicast && i->ifconfig.unicast.tick_ms>0)
+      delay = i->ifconfig.unicast.tick_ms;
+    if (delay==0)
+      delay = i->destination->ifconfig.tick_ms;
+    n->next_neighbour_update = n->last_update + delay;
+  }
   DEBUGF(ack, "Next update for %s in %"PRId64"ms", alloca_tohex_sid_t(n->subscriber->sid), n->next_neighbour_update - gettime_ms());
   OUT();
   return 0;
@@ -1068,6 +1051,15 @@ int link_add_destinations(struct overlay_frame *frame)
 	    frame_add_destination(frame, next_hop, out->destination);
 	  out = out->_next;
 	}
+      }
+    }
+    
+    if (next_hop->reachable==REACHABLE_NONE && frame->destination_count==0){
+      // check config for a hardcoded address
+      struct network_destination *destination = load_subscriber_address(frame->destination);
+      if (destination){
+	frame_add_destination(frame, next_hop, destination);
+	release_destination_ref(destination);
       }
     }
     
@@ -1322,7 +1314,8 @@ int link_received_packet(struct decode_context *context, int sender_seq, uint8_t
 }
 
 // parse incoming link details
-int link_receive(struct internal_mdp_header *header, struct overlay_buffer *payload)
+DEFINE_BINDING(MDP_PORT_LINKSTATE, link_receive);
+static int link_receive(struct internal_mdp_header *header, struct overlay_buffer *payload)
 {
   IN();
 
@@ -1562,10 +1555,12 @@ void link_explained(struct subscriber *subscriber)
   update_alarm(__WHENCE__, now + 5);
 }
 
-void link_interface_down(struct overlay_interface *UNUSED(interface))
+static void link_interface_change(struct overlay_interface *UNUSED(interface))
 {
   clean_neighbours(gettime_ms());
 }
+
+DEFINE_TRIGGER(iupdown, link_interface_change);
 
 /* if an ancient node on the network uses their old protocol to tell us that they can hear us;
   - send the same format back at them

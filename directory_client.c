@@ -37,8 +37,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "overlay_packet.h"
 #include "overlay_buffer.h"
 #include "conf.h"
+#include "overlay_interface.h"
 #include "keyring.h"
 #include "serval.h" // for overlay_send_frame()
+#include "route_link.h"
 
 __thread struct subscriber *directory_service;
 
@@ -91,8 +93,6 @@ static void directory_send_keyring(struct subscriber *directory_service){
 
 static void directory_update(struct sched_ent *alarm){
   if (directory_service){
-    // always attempt to reload the address, may depend on DNS resolution
-    load_subscriber_address(directory_service);
     if (directory_service->reachable & REACHABLE){
       directory_send_keyring(directory_service);
       
@@ -100,8 +100,14 @@ static void directory_update(struct sched_ent *alarm){
       alarm->alarm = gettime_ms() + DIRECTORY_UPDATE_INTERVAL;
       alarm->deadline = alarm->alarm + 10000;
       schedule(alarm);
-    }else
-      INFOF("Directory service is not reachable");
+    }else{
+      // always attempt to reload the address, may depend on DNS resolution
+      struct network_destination *destination = load_subscriber_address(directory_service);
+      if (destination){
+	overlay_send_probe(directory_service, destination, OQ_MESH_MANAGEMENT);
+	release_destination_ref(destination);
+      }
+    }
   }
 }
 
@@ -132,3 +138,15 @@ int directory_registration(){
   return 0;
 }
 
+static void interface_change(struct overlay_interface *UNUSED(interface)){
+  directory_registration();
+}
+
+DEFINE_TRIGGER(iupdown, interface_change);
+
+static void directory_link_changed(struct subscriber *subscriber, int UNUSED(prior_reachable)){
+  if (subscriber==directory_service)
+    directory_registration();
+}
+
+DEFINE_TRIGGER(link_change, directory_link_changed);

@@ -1,6 +1,6 @@
 /*
 Serval string buffer primitives
-Copyright (C) 2012 Serval Project Inc.
+Copyright (C) 2012-2015 Serval Project Inc.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -19,8 +19,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #ifndef __STRBUF_H__
 #define __STRBUF_H__
+#include <stddef.h>
+#include "features.h"
 
-/*
+/**
     A strbuf provides a convenient set of primitives for assembling a
     nul-terminated string in a fixed-size, caller-provided backing buffer,
     using a sequence of append operations.
@@ -98,7 +100,7 @@ struct strbuf {
     char *current;
 };
 
-/* Static constant for initialising a struct strbuf to empty:
+/** Static constant for initialising a struct strbuf to empty:
  *      struct strbuf ssb = STRUCT_STRBUF_EMPTY;
  * Immediately following this assignment, the following properties hold:
  *      strbuf_is_empty(&ssb)
@@ -110,7 +112,7 @@ struct strbuf {
  */
 #define STRUCT_STRBUF_EMPTY ((struct strbuf){NULL, NULL, NULL})
 
-/* Constant for initialising a struct strbuf to a static backing buffer:
+/** Constant for initialising a struct strbuf to a static backing buffer:
  *      char buf[n];
  *      struct strbuf ssb = STRUCT_STRBUF_INIT_STATIC(buf);
  * Immediately following this assignment, the following properties hold:
@@ -131,6 +133,36 @@ typedef const struct strbuf *const_strbuf;
  */
 #define SIZEOF_STRBUF (sizeof(struct strbuf))
 
+
+// clang doesn't force the allignment of alloca() which can lead to undefined behaviour. eg SIGBUS
+// TODO write autoconf test for this
+#ifdef __clang__
+  #define __ALIGNMENT_OF(T) offsetof( struct { char x; T dummy; }, dummy)
+  #define alloca_aligned(size, T) (void*)((uintptr_t)alloca(size+__ALIGNMENT_OF(T)-1)+__ALIGNMENT_OF(T)-1 & ~(__ALIGNMENT_OF(T)-1) )
+#else
+  #define alloca_aligned(size, T) alloca(size)
+#endif
+
+
+/** Convenience macro for allocating a strbuf and its backing buffer on the
+ * heap using a single call to malloc(3).
+ *
+ *      strbuf func1() {
+ *          strbuf b = strbuf_malloc(1024);
+ *          strbuf_puts(b, "some text");
+ *          strbuf_puts(b, " some more text");
+ *          return b;
+ *      }
+ *      strbuf func2() {
+ *          strbuf b = func1();
+ *          printf("%s\n", strbuf_str(b));
+ *          free(b);
+ *      }
+ *
+ * @author Andrew Bettison <andrew@servalproject.com>
+ */
+#define strbuf_malloc(size) strbuf_make(malloc(SIZEOF_STRBUF + (size)), SIZEOF_STRBUF + (size))
+
 /** Convenience macro for allocating a strbuf and its backing buffer on the
  * stack within the calling function.  The returned strbuf is only valid for
  * the duration of the function, so it must not be returned.  See alloca(3) for
@@ -145,7 +177,7 @@ typedef const struct strbuf *const_strbuf;
  *
  * @author Andrew Bettison <andrew@servalproject.com>
  */
-#define strbuf_alloca(size) strbuf_make(alloca(SIZEOF_STRBUF + (size)), SIZEOF_STRBUF + (size))
+#define strbuf_alloca(size) strbuf_make(alloca_aligned(SIZEOF_STRBUF + (size), strbuf), SIZEOF_STRBUF + (size))
 
 /** Convenience macro that calls strbuf_alloca() to allocate a large enough
  * buffer to hold the entire content produced by a given expression that
@@ -157,6 +189,9 @@ typedef const struct strbuf *const_strbuf;
  *
  *      strbuf b;
  *      STRBUF_ALLOCA_FIT(b, 20, (strbuf_append_variable_content(b, ...)));
+ *
+ * WARNING: this macro expands its third argument twice, so the third argument
+ * must have no side effects.
  *
  * @author Andrew Bettison <andrew@servalproject.com>
  */
@@ -224,7 +259,11 @@ typedef const struct strbuf *const_strbuf;
  *
  * @author Andrew Bettison <andrew@servalproject.com>
  */
-#define strbuf_local(buf,len) strbuf_init(alloca(SIZEOF_STRBUF), (buf), (len))
+#ifdef __GNUC__
+#define strbuf_local(buf,len) __strbuf_init_chk(alloca(SIZEOF_STRBUF), (char*)(buf), (len), __builtin_object_size((buf), 1))
+#else
+#define strbuf_local(buf,len) strbuf_init(alloca(SIZEOF_STRBUF), (char*)(buf), (len))
+#endif
 
 /** Convenience variant of the strbuf_local() macro that computes the 'len'
  * parameter from 'sizeof buf'.
@@ -238,9 +277,39 @@ typedef const struct strbuf *const_strbuf;
  *          printf("%s\n", temp);
  *      }
  *
+ * WARNING: 'buf' must name a char[] array, not a char* pointer.  The following
+ * code is wrong:
+ *
+ *      char *p = malloc(50);
+ *      ...
+ *      strbuf b = strbuf_local_buf(p); // ERROR!
+ *
+ * In the above example, sizeof(p) will be 8 (4 on 32-bit architectures) which
+ * is NOT the size of the buffer that p points to (50), and not the desired
+ * effect: the string in strbuf b will be limited to 7 chars in length.  If the
+ * buffer pointed to by p were less than 8 in size, then appending to strbuf b
+ * would cause memory corruption and a likely SIGSEGV.
+ *
+ * If compiled with the GNU C compiler (or equivalent, like Clang), then the
+ * above example would produce a build error (see below).  However, if the
+ * compiler does not support __attribute__((alloc_size(n)) (such as Clang 3.5),
+ * then the check is not performed, because it would also cause errors for
+ * perfectly legitimate uses, eg, strbuf_local_buf(a->buf).
+ *
  * @author Andrew Bettison <andrew@servalproject.com>
  */
-#define strbuf_local_buf(buf) strbuf_local((char*)(buf), sizeof (buf))
+#if defined(__GNUC__) && defined(HAVE_FUNC_ATTRIBUTE_ALLOC_SIZE)
+#   define strbuf_local_buf(buf) strbuf_local((char*)(buf), (sizeof(buf) == __builtin_object_size(buf, 1)) ? sizeof(buf) : __buffer_arg_is_not_array())
+    // If the following error occurs at compile time or this function is not
+    // resolved at link time, it means that the argument to strbuf_local_buf()
+    // was not an array whose size is known at compile time.  The most common
+    // cause of this is passing a pointer as the argument.  The solution is to
+    // use strbuf_local(b, len) instead of strbuf_local_buf(b), and supply the
+    // length of the buffer explicitly.
+    size_t __buffer_arg_is_not_array() __attribute__ ((__ATTRIBUTE_error("argument to strbuf_local_buf() must be an array not a pointer")));
+#else
+#   define strbuf_local_buf(buf) strbuf_local((char*)(buf), sizeof(buf))
+#endif
 
 /** Initialise a strbuf with a caller-supplied backing buffer.  The current
  * backing buffer and its contents are forgotten, and all strbuf operations
@@ -262,10 +331,23 @@ typedef const struct strbuf *const_strbuf;
  * If the 'size' argument is zero, then strbuf does not write into its backing
  * buffer, not even a terminating nul.
  *
+ * The __strbuf_init_chk() function calls strbuf_init() after ensuring that if
+ * the given buffer's size is known at compile time (chk != -1) and the strbuf
+ * is not being initialised to "indefinite" length (size != -1) then the given
+ * size does not exceed the size of the buffer (size <= chk).
+ * https://gcc.gnu.org/onlinedocs/gcc/Object-Size-Checking.html#Object-Size-Checking
+ *
  * @author Andrew Bettison <andrew@servalproject.com>
  */
 strbuf strbuf_init(strbuf sb, char *buffer, ssize_t size);
 
+#ifdef __GNUC__
+__STRBUF_INLINE strbuf __strbuf_init_chk(strbuf sb, char *buffer, ssize_t size, size_t chk) {
+    if (chk != (size_t)-1 && size != (ssize_t)-1)
+        assert((size_t)size <= chk); // buffer overflow
+    return strbuf_init(sb, buffer, size);
+}
+#endif
 
 /** Initialise a strbuf and its backing buffer inside the caller-supplied
  * buffer of the given size.  If the 'size' argument is less than
@@ -286,7 +368,6 @@ __STRBUF_INLINE strbuf strbuf_make(char *buffer, size_t size) {
   return size < SIZEOF_STRBUF ? NULL : strbuf_init((strbuf) buffer, buffer + SIZEOF_STRBUF, size - SIZEOF_STRBUF);
 }
 
-
 /** Reset a strbuf.  The current position is set to the start of the buffer, so
  * the next append will write at the start of the buffer.  The prior contents
  * of the buffer are forgotten and will be overwritten.
@@ -299,7 +380,6 @@ __STRBUF_INLINE strbuf strbuf_make(char *buffer, size_t size) {
  * @author Andrew Bettison <andrew@servalproject.com>
  */
 strbuf strbuf_reset(strbuf sb);
-
 
 /** Append a nul-terminated string to the strbuf up to a maximum number,
  * truncating if necessary to avoid buffer overrun, and terminating with a nul
@@ -323,7 +403,6 @@ strbuf strbuf_reset(strbuf sb);
  */
 strbuf strbuf_ncat(strbuf sb, const char *text, size_t len);
 
-
 /** Append a nul-terminated string to the strbuf, truncating if necessary to
  * avoid buffer overrun.  Return a pointer to the strbuf so that concatenations
  * can be chained in a single line: strbuf_puts(strbuf_puts(sb, "a"), "b");
@@ -342,7 +421,6 @@ strbuf strbuf_ncat(strbuf sb, const char *text, size_t len);
  */
 strbuf strbuf_puts(strbuf sb, const char *text);
 
-
 /** Append binary data strbuf, as up to 'len' characters of uppercase
  * hexadecimal format, truncating if necessary to avoid buffer overrun.  Return
  * a pointer to the strbuf.
@@ -359,7 +437,6 @@ strbuf strbuf_puts(strbuf sb, const char *text);
  * @author Andrew Bettison <andrew@servalproject.com>
  */
 strbuf strbuf_tohex(strbuf sb, size_t strlen, const unsigned char *data);
-
 
 /** Append a single character to the strbuf if there is space, and place a
  * terminating nul after it.  Return a pointer to the strbuf so that
@@ -379,7 +456,6 @@ strbuf strbuf_tohex(strbuf sb, size_t strlen, const unsigned char *data);
  */
 strbuf strbuf_putc(strbuf sb, char ch);
 
-
 /** Append the results of sprintf(fmt,...) to the string buffer, truncating if
  * necessary to avoid buffer overrun.  Return a pointer to the strbuf.
  *
@@ -389,9 +465,8 @@ strbuf strbuf_putc(strbuf sb, char ch);
  *
  * @author Andrew Bettison <andrew@servalproject.com>
  */
-strbuf strbuf_sprintf(strbuf sb, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+strbuf strbuf_sprintf(strbuf sb, const char *fmt, ...) __attribute__((__ATTRIBUTE_format(printf, 2, 3)));
 strbuf strbuf_vsprintf(strbuf sb, const char *fmt, va_list ap);
-
 
 /** Return a pointer to the current nul-terminated string in the strbuf.
  *
@@ -405,7 +480,6 @@ __STRBUF_INLINE char *strbuf_str(const_strbuf sb) {
   return sb->start;
 }
 
-
 /** Return a pointer to the nul-terminator at the end of the string in the
  * strbuf.
  *
@@ -414,7 +488,6 @@ __STRBUF_INLINE char *strbuf_str(const_strbuf sb) {
 __STRBUF_INLINE char *strbuf_end(const_strbuf sb) {
   return sb->end && sb->current > sb->end ? sb->end : sb->current;
 }
-
 
 /** Return a pointer to the substring starting at a given offset.  If the
  * offset is negative, then it is taken from the end of the string, ie, the
@@ -426,7 +499,6 @@ __STRBUF_INLINE char *strbuf_end(const_strbuf sb) {
  * @author Andrew Bettison <andrew@servalproject.com>
  */
 char *strbuf_substr(const_strbuf sb, int offset);
-
 
 /** Truncate the string in the strbuf to a given offset.  If the offset is
  * negative, then it is taken from the end of the string, ie, the length of the
@@ -460,7 +532,6 @@ char *strbuf_substr(const_strbuf sb, int offset);
  */
 strbuf strbuf_trunc(strbuf sb, int offset);
 
-
 /** Return true if the given strbuf is "empty", ie, not modified since being
  * initialised to STRUCT_STRBUF_EMPTY or with strbuf_init(sb, NULL, 0);
  *
@@ -469,7 +540,6 @@ strbuf strbuf_trunc(strbuf sb, int offset);
 __STRBUF_INLINE size_t strbuf_is_empty(const_strbuf sb) {
   return sb->start == NULL && sb->end == NULL && sb->current == NULL;
 }
-
 
 /** Return the size of the backing buffer.  Return -1 if the buffer is of
  * undefined size.
@@ -483,7 +553,6 @@ __STRBUF_INLINE ssize_t strbuf_size(const_strbuf sb) {
   return sb->end ? sb->end - sb->start + 1 : -1;
 }
 
-
 /** Return length of current string in the strbuf, not counting the terminating
  * nul.
  *
@@ -494,7 +563,6 @@ __STRBUF_INLINE ssize_t strbuf_size(const_strbuf sb) {
 __STRBUF_INLINE size_t strbuf_len(const_strbuf sb) {
   return strbuf_end(sb) - sb->start;
 }
-
 
 /** Return remaining space in the strbuf, not counting the terminating nul.
  * Return SIZE_MAX if the strbuf is of undefined size.
@@ -517,7 +585,6 @@ __STRBUF_INLINE size_t strbuf_remaining(const_strbuf sb) {
 __STRBUF_INLINE size_t strbuf_count(const_strbuf sb) {
   return sb->current - sb->start;
 }
-
 
 /** Return true iff the strbuf has been overrun, ie, any appended string has
  * been truncated since strbuf_init().

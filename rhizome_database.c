@@ -38,8 +38,7 @@ static int create_rhizome_store_dir()
   char rdpath[1024];
   if (!formf_rhizome_store_path(rdpath, sizeof rdpath, "%s", config.rhizome.datastore_path))
     return -1;
-  INFOF("Rhizome datastore path = %s", alloca_str_toprint(rdpath));
-  DEBUGF(rhizome, "mkdirs(%s, 0700)", alloca_str_toprint(rdpath));
+  DEBUGF(rhizome, "Rhizome datastore path = %s", alloca_str_toprint(rdpath));
   return emkdirs_info(rdpath, 0700);
 }
 
@@ -187,11 +186,18 @@ int rhizome_opendb()
   }
 
   IN();
-  
+
+  if (sodium_init()==-1)
+    RETURN(WHY("Failed to initialise libsodium"));
+
   if (create_rhizome_store_dir() == -1)
     RETURN(-1);
   char dbpath[1024];
   if (!FORMF_RHIZOME_STORE_PATH(dbpath, RHIZOME_BLOB_SUBDIR))
+    RETURN(-1);
+  if (emkdirs_info(dbpath, 0700) == -1)
+    RETURN(-1);
+  if (!FORMF_RHIZOME_STORE_PATH(dbpath, RHIZOME_HASH_SUBDIR))
     RETURN(-1);
   if (emkdirs_info(dbpath, 0700) == -1)
     RETURN(-1);
@@ -232,6 +238,8 @@ int rhizome_opendb()
   
   if (version<1){
     /* Create tables as required */
+    // Note that this will create the current schema
+    // further additional columns should be skipped.
     sqlite_exec_void_loglevel(loglevel, "PRAGMA auto_vacuum=2;", END);
     if (	sqlite_exec_void_retry(&retry, 
 		  "CREATE TABLE IF NOT EXISTS MANIFESTS("
@@ -247,7 +255,8 @@ int rhizome_opendb()
 		      "name text, "
 		      "sender text collate nocase, "
 		      "recipient text collate nocase, "
-		      "tail integer"
+		      "tail integer, "
+		      "manifest_hash text collate nocase"
 		  ");", END) == -1
       ||	sqlite_exec_void_retry(&retry, 
 		  "CREATE TABLE IF NOT EXISTS FILES("
@@ -275,14 +284,10 @@ int rhizome_opendb()
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "PRAGMA user_version=1;", END);
   }
   if (version<2 && meta.mtime.tv_sec != -1){
-    // we need to populate these fields on upgrade from very old versions, we can simply re-insert all old manifests
-    // at some point we may deprecate upgrading the database and simply drop it and create a new one
-    // if more bundle verification is required in later upgrades, move this to the end, don't run it more than once.
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "ALTER TABLE MANIFESTS ADD COLUMN service text;", END);
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "ALTER TABLE MANIFESTS ADD COLUMN name text;", END);
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "ALTER TABLE MANIFESTS ADD COLUMN sender text collate nocase;", END);
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "ALTER TABLE MANIFESTS ADD COLUMN recipient text collate nocase;", END);
-    verify_bundles();
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "PRAGMA user_version=2;", END);
   }
   if (version<3){
@@ -304,11 +309,21 @@ int rhizome_opendb()
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "DROP TABLE IF EXISTS VERIFICATIONS; ", END);
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "DROP TABLE IF EXISTS FILEMANIFESTS;", END);
   }
-  if (version<7){
-    if (meta.mtime.tv_sec != -1){
-      sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "ALTER TABLE FILES ADD COLUMN last_verified integer;", END);
-    }
+  if (version<7 && meta.mtime.tv_sec != -1){
+    sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "ALTER TABLE FILES ADD COLUMN last_verified integer;", END);
     sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "PRAGMA user_version=7;", END);
+  }
+  
+  if (version<8){
+    if (meta.mtime.tv_sec != -1)
+      sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "ALTER TABLE MANIFESTS ADD COLUMN manifest_hash text collate nocase;", END);
+    sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "CREATE INDEX IF NOT EXISTS IDX_MANIFEST_HASH ON MANIFESTS(manifest_hash);", END);
+
+    // we need to populate fields on upgrade from older versions, we can simply re-insert all old manifests
+    // if more bundle verification is required in later upgrades, move this to the end, don't run it more than once.
+    verify_bundles();
+    
+    sqlite_exec_void_loglevel(LOG_LEVEL_WARN, "PRAGMA user_version=8;", END);
   }
   
   // TODO recreate tables with collate nocase on all hex columns
@@ -858,14 +873,13 @@ int _sqlite_step(struct __sourceloc __whence, int log_level, sqlite_retry_state 
   int ret = -1;
   sqlite_trace_whence = &__whence;
   while (statement) {
-    int stepcode = sqlite3_step(statement);
-    switch (stepcode) {
+    ret = sqlite3_step(statement);
+    switch (ret) {
       case SQLITE_OK:
       case SQLITE_DONE:
       case SQLITE_ROW:
 	if (retry)
 	  _sqlite_retry_done(__whence, retry, sqlite3_sql(statement));
-	ret = stepcode;
 	statement = NULL;
 	break;
       case SQLITE_BUSY:
@@ -874,10 +888,9 @@ int _sqlite_step(struct __sourceloc __whence, int log_level, sqlite_retry_state 
 	  sqlite3_reset(statement);
 	  break; // back to sqlite3_step()
 	}
-	ret = stepcode;
 	// fall through...
       default:
-	LOGF(log_level, "query failed (%d), %s: %s", stepcode, sqlite3_errmsg(rhizome_db), sqlite3_sql(statement));
+	LOGF(log_level, "query failed (%d), %s: %s", ret, sqlite3_errmsg(rhizome_db), sqlite3_sql(statement));
 	statement = NULL;
 	break;
     }
@@ -885,6 +898,20 @@ int _sqlite_step(struct __sourceloc __whence, int log_level, sqlite_retry_state 
   sqlite_trace_whence = NULL;
   OUT();
   return ret;
+}
+
+int _sqlite_exec_code(struct __sourceloc __whence, int log_level, sqlite_retry_state *retry, sqlite3_stmt *statement, int *rowcount)
+{
+  *rowcount = 0;
+  if (!statement)
+    return SQLITE_ERROR;
+  int stepcode;
+  while ((stepcode = _sqlite_step(__whence, log_level, retry, statement)) == SQLITE_ROW)
+    ++(*rowcount);
+  sqlite3_finalize(statement);
+  if (sqlite_trace_func())
+    _DEBUGF("rowcount=%d changes=%d", *rowcount, sqlite3_changes(rhizome_db));
+  return stepcode;
 }
 
 /*
@@ -904,36 +931,25 @@ int _sqlite_step(struct __sourceloc __whence, int log_level, sqlite_retry_state 
  */
 int _sqlite_exec(struct __sourceloc __whence, int log_level, sqlite_retry_state *retry, sqlite3_stmt *statement)
 {
-  if (!statement)
-    return -1;
-  int rowcount = 0;
-  int stepcode;
-  while ((stepcode = _sqlite_step(__whence, log_level, retry, statement)) == SQLITE_ROW)
-    ++rowcount;
-  sqlite3_finalize(statement);
-  if (sqlite_trace_func())
-    _DEBUGF("rowcount=%d changes=%d", rowcount, sqlite3_changes(rhizome_db));
+  int rowcount;
+  int stepcode = _sqlite_exec_code(__whence, log_level, retry, statement, &rowcount);
   return sqlite_code_ok(stepcode) ? rowcount : -1;
 }
 
-/* Execute an SQL command that returns no value.  If an error occurs then logs it at ERROR level and
- * returns -1.  Otherwise returns the number of rows changed by the command.
- *
- * @author Andrew Bettison <andrew@servalproject.com>
- */
-static int _sqlite_vexec_void(struct __sourceloc __whence, int log_level, sqlite_retry_state *retry, const char *sqltext, va_list ap)
+static int _sqlite_vexec_void_code(struct __sourceloc __whence, int log_level, sqlite_retry_state *retry, int *rowcount, int *changes, const char *sqltext, va_list ap)
 {
+  *changes=0;
+  *rowcount=0;
   sqlite3_stmt *statement = _sqlite_prepare(__whence, log_level, retry, sqltext);
   if (!statement)
-    return -1;
+    return SQLITE_ERROR;
   if (_sqlite_vbind(__whence, log_level, retry, statement, ap) == -1)
-    return -1;
-  int rowcount = _sqlite_exec(__whence, log_level, retry, statement);
-  if (rowcount == -1)
-    return -1;
-  if (rowcount)
-    WARNF("void query unexpectedly returned %d row%s", rowcount, rowcount == 1 ? "" : "s");
-  return sqlite3_changes(rhizome_db);
+    return SQLITE_ERROR;
+  int stepcode = _sqlite_exec_code(__whence, log_level, retry, statement, rowcount);
+  if (sqlite_code_ok(stepcode)){
+    *changes = sqlite3_changes(rhizome_db);
+  }
+  return stepcode;
 }
 
 /* Convenience wrapper for executing an SQL command that returns no value.  If an error occurs then
@@ -944,12 +960,17 @@ static int _sqlite_vexec_void(struct __sourceloc __whence, int log_level, sqlite
  */
 int _sqlite_exec_void(struct __sourceloc __whence, int log_level, const char *sqltext, ...)
 {
+  int rowcount, changes;
   va_list ap;
   va_start(ap, sqltext);
   sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
-  int ret = _sqlite_vexec_void(__whence, log_level, &retry, sqltext, ap);
+  int stepcode = _sqlite_vexec_void_code(__whence, log_level, &retry, &rowcount, &changes, sqltext, ap);
   va_end(ap);
-  return ret;
+  if (!sqlite_code_ok(stepcode))
+    return -1;
+  if (rowcount)
+    WARNF("void query unexpectedly returned %d row%s", rowcount, rowcount == 1 ? "" : "s");
+  return changes;
 }
 
 /* Same as sqlite_exec_void() but if the statement cannot be executed because the database is
@@ -961,11 +982,25 @@ int _sqlite_exec_void(struct __sourceloc __whence, int log_level, const char *sq
  */
 int _sqlite_exec_void_retry(struct __sourceloc __whence, int log_level, sqlite_retry_state *retry, const char *sqltext, ...)
 {
+  int rowcount, changes;
   va_list ap;
   va_start(ap, sqltext);
-  int ret = _sqlite_vexec_void(__whence, log_level, retry, sqltext, ap);
+  int stepcode = _sqlite_vexec_void_code(__whence, log_level, retry, &rowcount, &changes, sqltext, ap);
   va_end(ap);
-  return ret;
+  if (!sqlite_code_ok(stepcode))
+    return -1;
+  if (rowcount)
+    WARNF("void query unexpectedly returned %d row%s", rowcount, rowcount == 1 ? "" : "s");
+  return changes;
+}
+
+int _sqlite_exec_changes_retry(struct __sourceloc __whence, int log_level, sqlite_retry_state *retry, int *rowcount, int *changes, const char *sqltext, ...)
+{
+  va_list ap;
+  va_start(ap, sqltext);
+  int stepcode = _sqlite_vexec_void_code(__whence, log_level, retry, rowcount, changes, sqltext, ap);
+  va_end(ap);
+  return stepcode;
 }
 
 static int _sqlite_vexec_uint64(struct __sourceloc __whence, sqlite_retry_state *retry, uint64_t *result, const char *sqltext, va_list ap)
@@ -1315,9 +1350,10 @@ int rhizome_store_manifest(rhizome_manifest *m)
 	  "name,"
 	  "sender,"
 	  "recipient,"
-	  "tail"
+	  "tail,"
+	  "manifest_hash"
 	") VALUES("
-	  "?,?,?,?,?,?,?,?,?,?,?,?,?"
+	  "?,?,?,?,?,?,?,?,?,?,?,?,?,?"
 	");",
 	RHIZOME_BID_T, &m->cryptoSignPublic,
 	STATIC_BLOB, m->manifestdata, m->manifest_all_bytes,
@@ -1333,6 +1369,7 @@ int rhizome_store_manifest(rhizome_manifest *m)
 	SID_T|NUL, m->has_sender ? &m->sender : NULL,
 	SID_T|NUL, m->has_recipient ? &m->recipient : NULL,
 	INT64, m->tail,
+	RHIZOME_FILEHASH_T, &m->manifesthash,
 	END
       )
   ) == NULL)
@@ -1351,12 +1388,8 @@ int rhizome_store_manifest(rhizome_manifest *m)
 	  alloca_tohex_rhizome_bid_t(m->cryptoSignPublic),
 	  m->version
 	);
-    CALL_TRIGGER(bundle_add, m);
-    monitor_announce_bundle(m);
-    if (serverMode){
-      time_ms_t now = gettime_ms();
-      RESCHEDULE(&ALARM_STRUCT(rhizome_sync_announce), now, now, TIME_MS_NEVER_WILL);
-    }
+    if (serverMode)
+      CALL_TRIGGER(bundle_add, m);
     return 0;
   }
 rollback:
@@ -1495,10 +1528,9 @@ int rhizome_list_next(struct rhizome_list_cursor *c)
     uint64_t q_version = sqlite3_column_int64(c->_statement, 2);
     int64_t q_inserttime = sqlite3_column_int64(c->_statement, 3);
     const char *q_author = (const char *) sqlite3_column_text(c->_statement, 4);
-    sid_t *author = NULL;
+    sid_t author;
     if (q_author) {
-      author = alloca(sizeof *author);
-      if (str_to_sid_t(author, q_author) == -1) {
+      if (str_to_sid_t(&author, q_author) == -1) {
 	WHYF("MANIFESTS row id=%s has invalid author column %s -- skipped", q_manifestid, alloca_str_toprint(q_author));
 	continue;
       }
@@ -1519,8 +1551,8 @@ int rhizome_list_next(struct rhizome_list_cursor *c)
 	  q_manifestid, q_version, m->version);
       continue;
     }
-    if (author)
-      rhizome_manifest_set_author(m, author);
+    if (q_author)
+      rhizome_manifest_set_author(m, &author);
     rhizome_manifest_set_rowid(m, q_rowid);
     rhizome_manifest_set_inserttime(m, q_inserttime);
     if (c->service && !(m->service && strcasecmp(c->service, m->service) == 0))
@@ -1747,6 +1779,71 @@ enum rhizome_bundle_status rhizome_retrieve_manifest_by_prefix(const unsigned ch
   if (!statement)
     return RHIZOME_BUNDLE_STATUS_ERROR;
   enum rhizome_bundle_status ret = unpack_manifest_row(&retry, m, statement);
+  sqlite3_finalize(statement);
+  return ret;
+}
+
+enum rhizome_bundle_status rhizome_retrieve_manifest_by_hash_prefix(const uint8_t *prefix, unsigned prefix_len, rhizome_manifest *m)
+{
+  sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
+  const unsigned prefix_strlen = prefix_len * 2;
+  char like[prefix_strlen + 2];
+  tohex(like, prefix_strlen, prefix);
+  like[prefix_strlen] = '%';
+  like[prefix_strlen + 1] = '\0';
+  sqlite3_stmt *statement = sqlite_prepare_bind(&retry,
+      "SELECT id, manifest, version, inserttime, author, rowid FROM manifests WHERE manifest_hash like ?",
+      TEXT, like,
+      END);
+  if (!statement)
+    return RHIZOME_BUNDLE_STATUS_ERROR;
+  enum rhizome_bundle_status ret = unpack_manifest_row(&retry, m, statement);
+  sqlite3_finalize(statement);
+  return ret;
+}
+
+enum rhizome_bundle_status rhizome_retrieve_bar_by_hash_prefix(const uint8_t *prefix, unsigned prefix_len, rhizome_bar_t *bar)
+{
+  sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
+  const unsigned prefix_strlen = prefix_len * 2;
+  char like[prefix_strlen + 2];
+  tohex(like, prefix_strlen, prefix);
+  like[prefix_strlen] = '%';
+  like[prefix_strlen + 1] = '\0';
+  sqlite3_stmt *statement = sqlite_prepare_bind(&retry,
+      "SELECT bar FROM manifests WHERE manifest_hash like ?",
+      TEXT, like,
+      END);
+  if (!statement)
+    return RHIZOME_BUNDLE_STATUS_ERROR;
+  enum rhizome_bundle_status ret;
+  
+  int r=sqlite_step_retry(&retry, statement);
+  if (sqlite_code_busy(r)){
+    ret = RHIZOME_BUNDLE_STATUS_BUSY;
+    goto end;
+  }
+  if (!sqlite_code_ok(r)){
+    ret = RHIZOME_BUNDLE_STATUS_ERROR;
+    goto end;
+  }
+  if (r!=SQLITE_ROW){
+    ret = RHIZOME_BUNDLE_STATUS_NEW;
+    goto end;
+  }
+  
+  const uint8_t *db_bar = sqlite3_column_blob(statement, 0);
+  size_t bar_size = sqlite3_column_bytes(statement, 0);
+
+  if (bar_size != RHIZOME_BAR_BYTES){
+    ret = RHIZOME_BUNDLE_STATUS_ERROR;
+    goto end;
+  }
+  
+  bcopy(db_bar, bar, RHIZOME_BAR_BYTES);
+  ret = RHIZOME_BUNDLE_STATUS_SAME;
+  
+end:
   sqlite3_finalize(statement);
   return ret;
 }

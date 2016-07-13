@@ -151,13 +151,13 @@ static int app_keyring_list(const struct cli_parsed *parsed, struct cli_context 
 
 static void cli_output_identity(struct cli_context *context, const keyring_identity *id)
 {
+  if (id->box_pk){
+      cli_field_name(context, "sid", ":");
+      cli_put_string(context, alloca_tohex_sid_t(*id->box_pk), "\n");
+  }
   keypair *kp=id->keypairs;
   while(kp){
     switch(kp->type){
-      case KEYTYPE_CRYPTOBOX:
-	cli_field_name(context, "sid", ":");
-	cli_put_string(context, alloca_tohex(kp->public_key, kp->public_key_len), "\n");
-	break;
       case KEYTYPE_DID:
 	{
 	  char *str = (char*)kp->private_key;

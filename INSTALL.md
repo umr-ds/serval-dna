@@ -9,9 +9,11 @@ These instructions will build [Serval DNA][] successfully for the following plat
 
  * Debian Linux, ix86 and x86\_64, kernels 2.6.x and 3.x, using [gcc 4.4][] to
    [gcc 4.8][]
- * Mac OS X 10.7 “Lion”, x86\_64, using [gcc 4.2][] available in [Xcode 4][]
-   3.2.6
- * Oracle SunOs 5.10 (Solaris), Sparc, using [gcc 4.4][]
+ * Mac OS X x86\_64, releases 10.7 “Lion” to 10.11 “El Capitan”, using [gcc
+   4.2][] available in [Xcode][] versions 3.2 to 7.2, and GNU tools available
+   from [homebrew][]
+ * Oracle SunOs 5.10 (Solaris), Sparc, using [gcc 4.4][] and GNU tools
+   installed
 
 [Serval DNA][] also runs on the following platforms, to which these build
 instructions do not apply:
@@ -47,8 +49,9 @@ Mandatory dependencies:
  * socket library `libsocket` and headers
  * dynamic link library `libdl` and header `<dlfcn.h>`
  * Native Posix Threads Library `libpthread` and header `<pthread.h>`
- * Autoconf 2.67 or later
  * on Solaris, the realtime library `librt` (for the `nanosleep()` function)
+ * Autoconf 2.67-2.69 (2.70 may work but has not been tested)
+ * Automake 1.15
 
 Optional:
 
@@ -58,8 +61,13 @@ Optional:
 Test dependencies:
 
  * bash 3.2.48 or later
+ * GNU grep, sed and awk (on OSX and Solaris, as ggrep, gsed and gawk)
  * jq 1.3 or later
  * curl
+
+The GNU grep, sed and awk programs can be installed on OSX using the
+[homebrew][] package manager.  The [Notes for Developers](./doc/Development.md)
+give more details.
 
 Build
 -----
@@ -68,7 +76,7 @@ To compile a native (ie, not cross-compiled) Serval DNA from source, run the
 following commands:
 
     $ cd $HOME/src/serval-dna
-    $ autoreconf -f -i
+    $ autoreconf -f -i -I m4
     $ ./configure
     $ make
     $
@@ -76,7 +84,8 @@ following commands:
 A successful session should appear something like:
 
     $ cd $HOME/src/serval-dna
-    $ autoreconf -f -i
+    $ autoreconf -f -i -I m4
+    aclocal: warning: autoconf input should be named 'configure.ac', not 'configure.in'
     $ ./configure
     checking build system type... i686-pc-linux-gnu
     checking host system type... i686-pc-linux-gnu
@@ -90,9 +99,8 @@ A successful session should appear something like:
     config.status: creating Makefile
     config.status: creating testconfig.sh
     $ make
-    CC nacl/src/crypto_auth_hmacsha256_ref/hmac.c
-    CC nacl/src/crypto_auth_hmacsha256_ref/verify.c
-    CC nacl/src/crypto_auth_hmacsha512256_ref/hmac.c
+    SERVALD CC conf.c
+    SERVALD CC cli.c
     ...
     CC cli.c
     CC commandline.c
@@ -109,12 +117,15 @@ On Solaris, the system `make` command may not be GNU Make, and the system
 `cc` command may not be GNU Gcc.  The following may work:
 
     $ cd $HOME/src/serval-dna
-    $ autoreconf -f -i
+    $ autoreconf -f -i -I m4
     $ CC=gcc
     $ export CC
     $ ./configure
     $ gmake
     $
+
+In the event of a build failure, first consult the [Notes for
+Developers](./doc/Development.md), then [contact the Serval Project][].
 
 Built artifacts
 ---------------
@@ -176,8 +187,9 @@ developing test scripts.
 Configure
 ---------
 
-The [doc/Servald-Configuration](./doc/Servald-Configuration.md) document
-describes the configuration of Serval DNA in detail.
+Before running `servald`, it must be configured correctly.  The
+[doc/Servald-Configuration](./doc/Servald-Configuration.md) document describes
+the configuration of Serval DNA in detail.
 
 About the examples
 ------------------
@@ -205,11 +217,12 @@ This document is available under the [Creative Commons Attribution 4.0 Internati
 [Android 2.2 “Froyo”]: http://developer.android.com/about/versions/android-2.2-highlights.html
 [Android NDK]: http://developer.android.com/tools/sdk/ndk/index.html
 [gcc 4.2]: http://gcc.gnu.org/gcc-4.2/
-[Xcode 4]: https://developer.apple.com/xcode/
+[Xcode]: https://developer.apple.com/xcode/
 [gcc 4.4]: http://gcc.gnu.org/gcc-4.4/
 [gcc 4.7]: http://gcc.gnu.org/gcc-4.7/
 [OpenWRT]: ./doc/OpenWRT.md
 [Serval Mesh Extender]: http://developer.servalproject.org/dokuwiki/doku.php?id=content:meshextender:
+[contact the Serval Project]: http://developer.servalproject.org/dokuwiki/doku.php?id=content:contact
 [RFD900]: http://rfdesign.com.au/index.php/rfd900
 [Mesh Potato]: http://villagetelco.org/mesh-potato/
 [Commotion Wireless]: http://commotionwireless.net/
@@ -219,4 +232,5 @@ This document is available under the [Creative Commons Attribution 4.0 Internati
 [Git]: http://git-scm.com/
 [Subversion]: http://subversion.apache.org/
 [Bourne shell]: http://en.wikipedia.org/wiki/Bourne_shell
+[homebrew]: http://brew.sh/
 [CC BY 4.0]: ./LICENSE-DOCUMENTATION.md

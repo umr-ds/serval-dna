@@ -30,7 +30,6 @@ typedef struct keypair {
   size_t private_key_len;
   unsigned char *public_key;
   size_t public_key_len;
-  uint8_t verified;
   struct keypair *next;
 } keypair;
 
@@ -45,6 +44,10 @@ typedef struct keyring_identity {
   time_ms_t challenge_expires;
   unsigned char challenge[24];
   unsigned int slot;
+  const uint8_t *box_sk;
+  const sid_t *box_pk;
+  const uint8_t *sign_sk;
+  const uint8_t *sign_pk;
   struct keyring_identity *next;
   keypair *keypairs;
 } keyring_identity;
@@ -67,6 +70,7 @@ typedef struct keyring_file {
   keyring_identity *identities;
   FILE *file;
   size_t file_size;
+  uint8_t dirty;
 } keyring_file;
 
 typedef struct keyring_iterator{
@@ -79,9 +83,11 @@ void keyring_iterator_start(keyring_file *k, keyring_iterator *it);
 keyring_identity * keyring_next_identity(keyring_iterator *it);
 keypair * keyring_next_key(keyring_iterator *it);
 keypair * keyring_next_keytype(keyring_iterator *it, unsigned keytype);
-keypair *keyring_identity_keytype(keyring_identity *id, unsigned keytype);
+keypair *keyring_identity_keytype(const keyring_identity *id, unsigned keytype);
 keypair *keyring_find_did(keyring_iterator *it, const char *did);
-keypair *keyring_find_sid(keyring_iterator *it, const sid_t *sidp);
+keyring_identity *keyring_find_identity(keyring_file *k, const sid_t *sidp);
+int keyring_find_box(keyring_iterator *it, const sid_t *sidp, const uint8_t **sk);
+#define keyring_find_sid(I, S) keyring_find_box(I, S, NULL)
 
 void keyring_free(keyring_file *k);
 int keyring_release_identity(keyring_iterator *it);
@@ -96,6 +102,9 @@ int keyring_release_identity(keyring_iterator *it);
 /* Arbitrary name / value pairs */
 #define KEYTYPE_PUBLIC_TAG 0x05
 
+// Combined signing / encryption key data
+#define KEYTYPE_CRYPTOCOMBINED 0x06
+
 /* handle to keyring file for use in running instance */
 extern __thread keyring_file *keyring;
 
@@ -105,7 +114,7 @@ keyring_file *keyring_open_instance(const char *pin);
 keyring_file *keyring_open_instance_cli(const struct cli_parsed *parsed);
 int keyring_enter_pin(keyring_file *k, const char *pin);
 int keyring_set_did(keyring_identity *id, const char *did, const char *name);
-struct keypair *keyring_find_sas_private(keyring_file *k, keyring_identity *identity);
+int keyring_sign_message(struct keyring_identity *identity, unsigned char *content, size_t buffer_len, size_t *content_len);
 int keyring_send_sas_request(struct subscriber *subscriber);
 
 int keyring_commit(keyring_file *k);
@@ -115,11 +124,10 @@ void keyring_identity_extract(const keyring_identity *id, const sid_t **sidp, co
 int keyring_load_from_dump(keyring_file *k, unsigned entry_pinc, const char **entry_pinv, FILE *input);
 int keyring_dump(keyring_file *k, XPRINTF xpf, int include_secret);
 
-unsigned char *keyring_get_nm_bytes(const sid_t *known_sidp, const sid_t *unknown_sidp);
+unsigned char *keyring_get_nm_bytes(const uint8_t *box_sk, const sid_t *box_pk, const sid_t *unknown_sidp);
 
 struct internal_mdp_header;
 struct overlay_buffer;
-int keyring_mapping_request(struct internal_mdp_header *header, struct overlay_buffer *payload);
 int keyring_send_unlock(struct subscriber *subscriber);
 int keyring_release_subscriber(keyring_file *k, const sid_t *sid);
 

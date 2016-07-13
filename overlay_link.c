@@ -30,13 +30,17 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "route_link.h"
 
 int set_reachable(struct subscriber *subscriber, 
-  struct network_destination *destination, struct subscriber *next_hop){
+  struct network_destination *destination, struct subscriber *next_hop,
+  int hop_count, struct subscriber *prior_hop){
   
   int reachable = REACHABLE_NONE;
   if (destination)
     reachable = destination->unicast?REACHABLE_UNICAST:REACHABLE_BROADCAST;
   else if(next_hop)
     reachable = REACHABLE_INDIRECT;
+  
+  subscriber->hop_count = hop_count;
+  subscriber->prior_hop = prior_hop;
   
   if (subscriber->reachable==reachable 
     && subscriber->next_hop==next_hop 
@@ -69,15 +73,8 @@ int set_reachable(struct subscriber *subscriber,
   /* Pre-emptively send a sas request */
   if (!subscriber->sas_valid && reachable&REACHABLE)
     keyring_send_sas_request(subscriber);
-  
-  // Hacky layering violation... send our identity to a directory service
-  if (subscriber==directory_service)
-    directory_registration();
-  
-  if ((old_value & REACHABLE) && (!(reachable & REACHABLE)))
-    monitor_announce_unreachable_peer(&subscriber->sid);
-  if ((!(old_value & REACHABLE)) && (reachable & REACHABLE))
-    monitor_announce_peer(&subscriber->sid);
+
+  CALL_TRIGGER(link_change, subscriber, old_value);
   
   return 1;
 }
@@ -106,20 +103,22 @@ int resolve_name(const char *name, struct in_addr *addr){
 }
 
 // load a unicast address from configuration
-int load_subscriber_address(struct subscriber *subscriber)
+struct network_destination *load_subscriber_address(struct subscriber *subscriber)
 {
-  if (!subscriber || subscriber->reachable&REACHABLE)
-    return 0;
+  if (!subscriber || subscriber->reachable != REACHABLE_NONE)
+    return NULL;
   int i = config_host_list__get(&config.hosts, &subscriber->sid);
   // No unicast configuration? just return.
   if (i == -1)
-    return 1;
+    return NULL;
   const struct config_host *hostc = &config.hosts.av[i].value;
   overlay_interface *interface = NULL;
   if (*hostc->interface){
-    interface = overlay_interface_find_name(hostc->interface);
-    if (!interface)
-      return WHY("Can't find configured interface");
+    interface = overlay_interface_find_name_addr(hostc->interface, NULL);
+    if (!interface){
+      WARNF("Can't find configured interface %s", hostc->interface);
+      return NULL;
+    }
   }
   struct socket_address addr;
   bzero(&addr, sizeof(addr));
@@ -130,24 +129,19 @@ int load_subscriber_address(struct subscriber *subscriber)
   if (addr.inet.sin_addr.s_addr==INADDR_NONE){
     if (interface || overlay_interface_get_default()){
       if (resolve_name(hostc->host, &addr.inet.sin_addr))
-	return -1;
+	return NULL;
     }else{
       // interface isnt up yet
-      return 1;
+      return NULL;
     }
   }
   DEBUGF(overlayrouting, "Loaded address %s for %s", alloca_socket_address(&addr), alloca_tohex_sid_t(subscriber->sid));
-  struct network_destination *destination = create_unicast_destination(&addr, interface);
-  if (!destination)
-    return -1;
-  int ret=overlay_send_probe(subscriber, destination, OQ_MESH_MANAGEMENT);
-  release_destination_ref(destination);
-  return ret;
+  return create_unicast_destination(&addr, interface);
 }
 
 /* Collection of unicast echo responses to detect working links */
-int
-overlay_mdp_service_probe(struct internal_mdp_header *header, struct overlay_buffer *payload)
+DEFINE_BINDING(MDP_PORT_PROBE, overlay_mdp_service_probe);
+static int overlay_mdp_service_probe(struct internal_mdp_header *header, struct overlay_buffer *payload)
 {
   IN();
   if (header->source_port!=MDP_PORT_ECHO){
@@ -229,7 +223,8 @@ static void overlay_append_unicast_address(struct subscriber *subscriber, struct
   }
 }
 
-int overlay_mdp_service_stun_req(struct internal_mdp_header *header, struct overlay_buffer *payload)
+DEFINE_BINDING(MDP_PORT_STUNREQ, overlay_mdp_service_stun_req);
+static int overlay_mdp_service_stun_req(struct internal_mdp_header *header, struct overlay_buffer *payload)
 {
   DEBUGF(overlayrouting, "Processing STUN request from %s", alloca_tohex_sid_t(header->source->sid));
 
@@ -267,7 +262,8 @@ int overlay_mdp_service_stun_req(struct internal_mdp_header *header, struct over
   return 0;
 }
 
-int overlay_mdp_service_stun(struct internal_mdp_header *header, struct overlay_buffer *payload)
+DEFINE_BINDING(MDP_PORT_STUN, overlay_mdp_service_stun);
+static int overlay_mdp_service_stun(struct internal_mdp_header *header, struct overlay_buffer *payload)
 {
   DEBUGF(overlayrouting, "Processing STUN info from %s", alloca_tohex_sid_t(header->source->sid));
 

@@ -216,9 +216,7 @@ int overlay_mdp_send(int mdp_sockfd, overlay_mdp_frame *mdp, int flags, int time
   if (make_local_sockaddr(&addr, "mdp.socket") == -1)
     return WHY("Failed to make socket address");
   // Send to that socket
-  set_nonblock(mdp_sockfd);
   ssize_t result = sendto(mdp_sockfd, mdp, (size_t)len, 0, &addr.addr, addr.addrlen);
-  set_block(mdp_sockfd);
   if ((size_t)result != (size_t)len) {
     if (result == -1)
       WHYF_perror("sendto(fd=%d,len=%zu,addr=%s)", mdp_sockfd, (size_t)len, alloca_socket_address(&addr));
@@ -268,10 +266,8 @@ int overlay_mdp_client_socket(void)
   /* Create local per-client socket to MDP server (connection is always local) */
   int mdp_sockfd;
   struct socket_address addr;
-  uint32_t random_value;
-  if (urandombytes((unsigned char *)&random_value, sizeof random_value) == -1)
-    return WHY("urandombytes() failed");
-  if (make_local_sockaddr(&addr, "mdp.client.%u.%08lx.socket", getpid(), (unsigned long)random_value) == -1)
+  static unsigned seq = 0;
+  if (make_local_sockaddr(&addr, "mdp.client.%u.%08x.socket", getpid(), ++seq) == -1)
     return -1;
   if ((mdp_sockfd = esocket(AF_UNIX, SOCK_DGRAM, 0)) == -1)
     return -1;
@@ -322,21 +318,15 @@ int overlay_mdp_recv(int mdp_sockfd, overlay_mdp_frame *mdp, mdp_port_t port, in
   recvaddr.addrlen = sizeof recvaddr.store;
   ssize_t len;
   mdp->packetTypeAndFlags = 0;
-  set_nonblock(mdp_sockfd);
-  len = recvwithttl(mdp_sockfd, (unsigned char *)mdp, sizeof(overlay_mdp_frame), ttl, &recvaddr);
-  if (len == -1)
-    WHYF_perror("recvwithttl(%d,%p,%zu,&%d,%p(%s))",
-	  mdp_sockfd, mdp, sizeof(overlay_mdp_frame), *ttl,
-	  &recvaddr, alloca_socket_address(&recvaddr)
-	);
-  set_block(mdp_sockfd);
+
+  len = recv_message(mdp_sockfd, &recvaddr, ttl, (unsigned char *)mdp, sizeof(overlay_mdp_frame));
   if (len <= 0)
     return -1; // no packet received
 
   // If the received address overflowed the buffer, then it cannot have come from the server, whose
   // address must always fit within a struct sockaddr_un.
   if (recvaddr.addrlen > sizeof recvaddr.store)
-    return WHY("reply did not come from server: address overrun");
+    return WHYF("reply did not come from server %s: address overrun", alloca_socket_address(&mdp_addr));
 
   // Compare the address of the sender with the address of our server, to ensure they are the same.
   // If the comparison fails, then try using realpath(3) on the sender address and compare again.
@@ -346,7 +336,7 @@ int overlay_mdp_recv(int mdp_sockfd, overlay_mdp_frame *mdp, mdp_port_t port, in
 	  || cmp_sockaddr(&recvaddr, &mdp_addr) != 0
 	 )
   )
-    return WHYF("reply did not come from server: %s", alloca_socket_address(&recvaddr));
+    return WHYF("reply did not come from server %s: %s", alloca_socket_address(&mdp_addr), alloca_socket_address(&recvaddr));
   
   // silently drop incoming packets for the wrong port number
   if (port>0 && port != mdp->out.dst.port){

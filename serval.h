@@ -117,12 +117,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <fcntl.h>
 #include <sys/stat.h>
 
+#include "constants.h"
 #include "cli.h"
 #include "serval_types.h"
 #include "sighandlers.h"
 #include "instance.h"
 #include "fdqueue.h"
-#include "constants.h"
 #include "mem.h"
 #include "xprintf.h"
 #include "log.h"
@@ -218,18 +218,6 @@ int rhizome_opendb();
 
 int parseCommandLine(struct cli_context *context, const char *argv0, int argc, const char *const *argv);
 
-/* Server-side MDP functions */
-void mdp_init_response(const struct internal_mdp_header *in, struct internal_mdp_header *out);
-void overlay_mdp_encode_ports(struct overlay_buffer *plaintext, mdp_port_t dst_port, mdp_port_t src_port);
-int overlay_mdp_dnalookup_reply(struct subscriber *dest, mdp_port_t dest_port, 
-    struct subscriber *resolved_sid, const char *uri, const char *did, const char *name);
-int _overlay_send_frame(struct __sourceloc whence, struct internal_mdp_header *header, struct overlay_buffer *payload);
-#define overlay_send_frame(H, P) _overlay_send_frame(__WHENCE__, H, P)
-int mdp_bind_internal(struct subscriber *subscriber, mdp_port_t port,
-  int (*internal)(struct internal_mdp_header *header, struct overlay_buffer *payload));
-int mdp_unbind_internal(struct subscriber *subscriber, mdp_port_t port,
-  int (*internal)(struct internal_mdp_header *header, struct overlay_buffer *payload));
-
 int allow_inbound_packet(const struct internal_mdp_header *header);
 int allow_outbound_packet(const struct internal_mdp_header *header);
 void load_mdp_packet_rules(const char *filename);
@@ -238,8 +226,7 @@ struct vomp_call_state;
 
 void set_codec_flag(int codec, unsigned char *flags);
 
-struct vomp_call_state *vomp_find_call_by_session(unsigned int session_token);
-int vomp_mdp_received(struct internal_mdp_header *header, struct overlay_buffer *payload);
+struct vomp_call_state *vomp_find_call_by_session(uint16_t session_token);
 int vomp_parse_dtmf_digit(char c);
 int vomp_dial(struct subscriber *local, struct subscriber *remote, const char *local_did, const char *remote_did);
 int vomp_pickup(struct vomp_call_state *call);
@@ -256,9 +243,6 @@ int monitor_get_fds(struct pollfd *fds,int *fdcount,int fdmax);
 
 int monitor_setup_sockets();
 int monitor_get_fds(struct pollfd *fds,int *fdcount,int fdmax);
-int monitor_announce_peer(const sid_t *sidp);
-int monitor_announce_unreachable_peer(const sid_t *sidp);
-int monitor_announce_link(int hop_count, struct subscriber *transmitter, struct subscriber *receiver);
 int monitor_tell_clients(char *msg, int msglen, int mask);
 int monitor_tell_formatted(int mask, char *fmt, ...);
 int monitor_client_interested(int mask);
@@ -276,7 +260,6 @@ extern uint16_t mdp_loopback_port;
 int overlay_mdp_setup_sockets();
 
 int overlay_packetradio_setup_port(struct overlay_interface *interface);
-void overlay_mdp_bind_internal_services();
 int overlay_send_probe(struct subscriber *peer, struct network_destination *destination, int queue);
 int overlay_send_stun_request(struct subscriber *server, struct subscriber *request);
 void rhizome_check_connections(struct sched_ent *alarm);
@@ -287,10 +270,6 @@ void monitor_client_poll(struct sched_ent *alarm);
 void monitor_poll(struct sched_ent *alarm);
 void rhizome_fetch_poll(struct sched_ent *alarm);
 void rhizome_server_poll(struct sched_ent *alarm);
-
-int overlay_mdp_service_stun_req(struct internal_mdp_header *header, struct overlay_buffer *payload);
-int overlay_mdp_service_stun(struct internal_mdp_header *header, struct overlay_buffer *payload);
-int overlay_mdp_service_probe(struct internal_mdp_header *header, struct overlay_buffer *payload);
 
 int olsr_init_socket(void);
 int olsr_send(struct overlay_frame *frame);

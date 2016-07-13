@@ -70,6 +70,8 @@ public class ServalDCommand
 
 	public static native int server(IJniServer callback, String keyringPin, String[] entryPins);
 
+	public static native int setInstancePath(String path);
+
 	/**
 	 * Common entry point into servald command line.
 	 *
@@ -393,7 +395,7 @@ public class ServalDCommand
 		}
 	}
 
-	public static ManifestResult rhizomeAddFile(File payloadPath, File manifestPath, SubscriberId author, String pin)
+	public static ManifestResult rhizomeAddFile(File payloadPath, File manifestPath, BundleId bid, SubscriberId author, String pin, String... fieldValues)
 			throws ServalDFailureException
 	{
 		List<String> args = new LinkedList<String>();
@@ -404,13 +406,16 @@ public class ServalDCommand
 			args.add("--entry-pin");
 			args.add(pin);
 		}
+		if (bid != null)
+			args.add("--bundle="+bid.toHex());
 		args.add(author == null ? null : author.toHex());
-		if (payloadPath != null)
-			args.add(payloadPath.getAbsolutePath());
-		else if (manifestPath != null)
-			args.add(null);
-		if (manifestPath != null)
-			args.add(manifestPath.getAbsolutePath());
+
+		args.add(payloadPath == null ? null : payloadPath.getAbsolutePath());
+		args.add(manifestPath == null ? null : manifestPath.getAbsolutePath());
+		args.add(null);
+
+		for(String f : fieldValues)
+			args.add(f);
 
 		ManifestResult result = new ManifestResult();
 		result.setResult(command(result, args.toArray(new String[args.size()])));
@@ -451,11 +456,27 @@ public class ServalDCommand
 		return result;
 	}
 
+	public static ManifestResult rhizomeImportZipBundle(File payloadFile) throws ServalDFailureException {
+		ManifestResult result = new ManifestResult();
+		result.setResult(command(result, "rhizome", "import", "bundle", "--zip-comment",
+				payloadFile.getAbsolutePath(), payloadFile.getAbsolutePath()));
+		return result;
+	}
+
 	public static ManifestResult rhizomeExtractBundle(BundleId manifestId, File manifestFile, File payloadFile) throws ServalDFailureException{
 		ManifestResult result = new ManifestResult();
 		result.setResult(command(result, "rhizome", "extract", "bundle",
 				manifestId.toHex(),
 				manifestFile == null ? "-" : manifestFile.getAbsolutePath(),
+				payloadFile.getAbsolutePath()));
+		return result;
+	}
+
+	public static ManifestResult rhizomeExportZipBundle(BundleId manifestId, File payloadFile) throws ServalDFailureException{
+		ManifestResult result = new ManifestResult();
+		result.setResult(command(result, "rhizome", "export", "bundle", "--zip-comment",
+				manifestId.toHex(),
+				payloadFile.getAbsolutePath(),
 				payloadFile.getAbsolutePath()));
 		return result;
 	}
@@ -518,6 +539,12 @@ public class ServalDCommand
 	public static ConfigItems getConfig(String pattern) throws ServalDFailureException {
 		ConfigItems results = new ConfigItems();
 		results.setResult(command(results, "config", "get", pattern));
+		return results;
+	}
+
+	public static ConfigItems getConfig() throws ServalDFailureException {
+		ConfigItems results = new ConfigItems();
+		results.setResult(command(results, "config", "get"));
 		return results;
 	}
 

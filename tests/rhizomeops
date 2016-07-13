@@ -254,6 +254,17 @@ test_AddEmpty() {
    assert_rhizome_list --fromhere=1 --author=$SIDA --manifest=empty.manifest ''
 }
 
+doc_AddMissing="Attempt to add a file and manifest that don't exist"
+setup_AddMissing() {
+   setup_servald
+   setup_rhizome
+}
+test_AddMissing() {
+   execute $servald rhizome add file $SIDA 'file1' 'file1.manifest'
+   tfw_cat --stdout --stderr
+   assertExitStatus '==' 255
+}
+
 doc_AddThenList="List contains one file after one add"
 setup_AddThenList() {
    setup_servald
@@ -808,7 +819,7 @@ setup_AddUpdateNoAuthorWithSecret() {
    setup_AddUpdateNoAuthor
 }
 test_AddUpdateNoAuthorWithSecret() {
-   executeOk_servald rhizome add file $SIDA file1_2 file1_2.manifest "$file1_secret"
+   executeOk_servald rhizome add file '' file1_2 file1_2.manifest "$file1_secret"
    tfw_cat --stderr
    # Rhizome store contents have new payload, but it has lost its author (no BK
    # field any more).
@@ -955,29 +966,47 @@ test_EncryptedPayload() {
    assert ! diff file1 file1y
 }
 
-doc_RecipientIsEncrypted="Sender & recipient triggers encryption by default"
+doc_RecipientIsEncrypted="Setting recipient triggers encryption by default"
 setup_RecipientIsEncrypted() {
    A_IDENTITY_COUNT=2
    setup_servald
    setup_rhizome
-   echo "Clear Text" >file1
+   echo "Clear Text1" >file1
    echo -e "service=file\nsender=$SIDA1\nrecipient=$SIDA2" >file1.manifest
+   echo "Clear Text2" >file2
+   echo -e "service=file\nrecipient=$SIDA2" >file2.manifest
 }
 test_RecipientIsEncrypted() {
+# add file with sender & recipient
    executeOk_servald rhizome add file $SIDA1 file1 file1.manifest
    tfw_cat --stdout --stderr
    assert_stdout_add_file file1
    assert_manifest_complete file1.manifest
-   executeOk_servald rhizome list
-   assert_rhizome_list --fromhere=1 file1
-   extract_manifest_id BID file1.manifest
-   executeOk_servald rhizome extract file $BID file1x
+   assertGrep file1.manifest "crypt=1"
+# add file sith only recipient
+   executeOk_servald rhizome add file $SIDA1 file2 file2.manifest
+   tfw_cat --stdout --stderr
+   assert_stdout_add_file file2
+   assert_manifest_complete file2.manifest
+   assertGrep file2.manifest "crypt=1"
+# test that both files can be decrypted
+   extract_manifest_id BID1 file1.manifest
+   extract_manifest_filehash filehash1 file1.manifest
+   extract_manifest_id BID2 file2.manifest
+   extract_manifest_filehash filehash2 file2.manifest
+   executeOk_servald rhizome extract file $BID1 file1x
    tfw_cat --stdout --stderr
    assert diff file1 file1x
-   extract_manifest_filehash filehash file1.manifest
-   executeOk_servald rhizome export file $filehash file1y
+   executeOk_servald rhizome extract file $BID2 file2x
+   tfw_cat --stdout --stderr
+   assert diff file2 file2x
+# and that the stored files are obscured
+   executeOk_servald rhizome export file $filehash1 file1y
    tfw_cat file1 -v file1y
    assert ! diff file1 file1y
+   executeOk_servald rhizome export file $filehash2 file2y
+   tfw_cat file2 -v file2y
+   assert ! diff file2 file2y
 }
 
 doc_BroadcastNotEncrypted="Broadcast recipients are not encrypted by default"
@@ -1006,7 +1035,7 @@ setup_AddReuseManifest() {
    setup_rhizome
    echo "First content" >file1
    echo "Second content" >file1a
-   echo -e "service=wazoo\nunexpected=true\nrecipient=$SIDB1\nnothing=here" >file1.manifest
+   echo -e "service=wazoo\nunexpected=true\nsender=$SIDB1\nnothing=here" >file1.manifest
    executeOk_servald rhizome add file $SIDA file1 file1.manifest
    tfw_cat --stderr
    extract_stdout_manifestid BID
@@ -1014,7 +1043,7 @@ setup_AddReuseManifest() {
 test_AddReuseManifest() {
    executeOk_servald rhizome add file --bundle=$BID $SIDA file1a file1a.manifest '' !nothing something=there
    tfw_cat --stderr
-   assert_manifest_fields file1a.manifest service=wazoo unexpected=true recipient=$SIDB1 !nothing something=there
+   assert_manifest_fields file1a.manifest service=wazoo unexpected=true sender=$SIDB1 !nothing something=there
    executeOk_servald rhizome export bundle $BID file1ax.manifest file1ax
    assert diff file1a file1ax
 }
@@ -1034,6 +1063,32 @@ test_JournalAppend() {
    extract_stdout_manifestid BID
    executeOk_servald rhizome journal append $SIDA $BID file2
    tfw_cat --stdout --stderr
+   executeOk_servald rhizome extract file $BID filex
+   tfw_cat --stdout --stderr
+   assert diff file filex
+}
+
+doc_JournalAppendNoHash="Appending to a journal should not rehash"
+setup_JournalAppendNoHash() {
+   setup_servald
+   setup_rhizome
+   executeOk_servald config \
+	set rhizome.max_blob_size 0 \
+	set debug.rhizome on
+   echo "Part One" > file1
+   echo "Part Two" > file2
+   cat file1 file2 > file
+}
+test_JournalAppendNoHash() {
+   executeOk_servald rhizome journal append $SIDA "" file1
+   tfw_cat --stdout --stderr
+   assert_stdout_add_file file1
+   extract_stdout_manifestid BID
+   assert [ $(ls "$SERVALINSTANCE_PATH/hash" | wc -l) -eq 1 ]
+   executeOk_servald rhizome journal append $SIDA $BID file2
+   tfw_cat --stdout --stderr
+   assert [ $(ls "$SERVALINSTANCE_PATH/hash" | wc -l) -eq 2 ]
+   assertStderrGrep 'Reusing journal'
    executeOk_servald rhizome extract file $BID filex
    tfw_cat --stdout --stderr
    assert diff file filex
@@ -1083,7 +1138,7 @@ setup_JournalAddCreate() {
 test_JournalAddCreate() {
    # TODO: servald should return a status code reserved for this case, instead
    # of the 4 error (which means "invalid manifest")
-   execute --exit-status=4 $servald rhizome add file $SIDA file1 file1.manifest
+   execute --exit-status=4 --stderr $servald rhizome add file $SIDA file1 file1.manifest
    tfw_cat --stdout --stderr
 }
 
@@ -1418,6 +1473,34 @@ test_ImportCombinedBundle() {
    assert_rhizome_list --fromhere=0 fileA
    executeOk_servald rhizome export bundle $manifestid fileAx fileAx
    assert diff fileA fileAx
+}
+
+doc_ImportCombinedZipBundle="Create and import combined zip bundle"
+setup_ImportCombinedZipBundle() {
+   # A "combined bundle" is a single file consisting of a payload with its
+   # manifest appended to the end.
+   setup_servald
+   setup_rhizome
+   echo "Hello from A" >fileA
+   zip fileA.zip fileA
+}
+test_ImportCombinedZipBundle() {
+   # Create the combined bundle
+   executeOk_servald rhizome add file --zip-comment $SIDA fileA.zip fileA.manifest
+   extract_manifest_id manifestid fileA.manifest
+   extract_manifest_filehash filehash fileA.manifest
+   extract_manifest_filesize filesize fileA.manifest
+   # Import the combined bundle
+   set_instance +B
+   executeOk_servald rhizome import bundle --zip-comment fileA.zip fileA.zip
+   assertStdoutGrep --matches=1 "^service:file$"
+   assertStdoutGrep --matches=1 "^manifestid:$manifestid\$"
+   assertStdoutGrep --matches=1 "^filehash:$filehash\$"
+   assertStdoutGrep --matches=1 "^filesize:$filesize\$"
+   executeOk_servald rhizome list
+   assert_rhizome_list --fromhere=0 fileA.zip
+   executeOk_servald rhizome export bundle --zip-comment $manifestid fileAx.zip fileAx.zip
+   assert diff fileA.zip fileAx.zip
 }
 
 doc_ImportJournal="Import a journal bundle"

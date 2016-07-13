@@ -116,39 +116,6 @@ int _mkdirsn(struct __sourceloc whence, const char *path, size_t len, mode_t mod
   return -1;
 }
 
-int urandombytes(unsigned char *buf, size_t len)
-{
-  static int urandomfd = -1;
-  int tries = 0;
-  if (urandomfd == -1) {
-    for (tries = 0; tries < 4; ++tries) {
-      urandomfd = open("/dev/urandom",O_RDONLY);
-      if (urandomfd != -1) break;
-      sleep_ms(1000);
-    }
-    if (urandomfd == -1) {
-      WHY_perror("open(/dev/urandom)");
-      return -1;
-    }
-  }
-  tries = 0;
-  while (len > 0) {
-    ssize_t i = read(urandomfd, buf, (len < 1048576) ? len : 1048576);
-    if (i == -1) {
-      if (++tries > 4) {
-	WHY_perror("read(/dev/urandom)");
-	if (errno==EBADF) urandomfd=-1;
-	return -1;
-      }
-    } else {
-      tries = 0;
-      buf += i;
-      len -= i;
-    }
-  }
-  return 0;
-}
-
 time_ms_t gettime_ms()
 {
   struct timeval nowtv;
@@ -182,7 +149,7 @@ time_ms_t sleep_ms(time_ms_t milliseconds)
   delay.tv_nsec = (milliseconds % 1000) * 1000000;
   if (nanosleep(&delay, &remain) == -1 && errno != EINTR)
     FATALF_perror("nanosleep(tv_sec=%ld, tv_nsec=%ld)", delay.tv_sec, delay.tv_nsec);
-  return remain.tv_sec * 1000 + remain.tv_nsec / 1000000;
+  return remain.tv_sec * 1000ull + remain.tv_nsec / 1000000;
 }
 
 struct timeval time_ms_to_timeval(time_ms_t milliseconds)

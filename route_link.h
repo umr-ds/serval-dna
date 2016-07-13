@@ -28,7 +28,6 @@ struct overlay_frame;
 struct decode_context;
 struct internal_mdp_header;
 
-int link_state_announce_links();
 void link_neighbour_short_status_html(struct strbuf *b, const char *link_prefix);
 void link_neighbour_status_html(struct strbuf *b, struct subscriber *neighbour);
 int link_has_neighbours();
@@ -41,9 +40,10 @@ int link_state_ack_soon(struct subscriber *subscriber);
 int link_received_duplicate(struct decode_context *context, int payload_seq);
 int link_received_packet(struct decode_context *context, int sender_seq, uint8_t unicast);
 int link_unicast_ack(struct subscriber *subscriber, struct overlay_interface *interface, struct socket_address *addr);
-int link_receive(struct internal_mdp_header *header, struct overlay_buffer *payload);
 void link_explained(struct subscriber *subscriber);
-void link_interface_down(struct overlay_interface *interface);
 int link_state_legacy_ack(struct overlay_frame *frame, time_ms_t now);
+
+DECLARE_TRIGGER(nbr_change, struct subscriber *neighbour, uint8_t found, unsigned count);
+DECLARE_TRIGGER(link_change, struct subscriber *subscriber, int prior_reachable);
 
 #endif

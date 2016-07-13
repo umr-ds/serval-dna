@@ -59,6 +59,7 @@ struct profile_total sock_any_stats;
 
 static void overlay_interface_poll(struct sched_ent *alarm);
 static int inet_up_count=0;
+static void rescan_soon(time_ms_t run_at);
 
 void overlay_interface_close(overlay_interface *interface)
 {
@@ -87,11 +88,10 @@ void overlay_interface_close(overlay_interface *interface)
     radio_link_free(interface);
   interface->state=INTERFACE_STATE_DOWN;
   
-  monitor_tell_formatted(MONITOR_INTERFACE, "\nINTERFACE:%s:DOWN\n", interface->name);
   INFOF("Interface %s addr %s is down", 
 	interface->name, alloca_socket_address(&interface->address));
+  CALL_TRIGGER(iupdown, interface);
   
-  link_interface_down(interface);
 }
 
 void overlay_interface_close_all()
@@ -108,7 +108,7 @@ void overlay_interface_monitor_up()
   unsigned i;
   for (i=0;i<OVERLAY_MAX_INTERFACES;i++){
     if (overlay_interfaces[i].state == INTERFACE_STATE_UP)
-      monitor_tell_formatted(MONITOR_INTERFACE, "\nINTERFACE:%s:UP\n", overlay_interfaces[i].name);
+      monitor_tell_formatted(MONITOR_INTERFACE, "\nINTERFACE:%u:%s:UP\n", i, overlay_interfaces[i].name);
   }
 }
 
@@ -215,6 +215,8 @@ overlay_bind_socket(const struct socket_address *addr){
   
   if (socket_bind(fd, addr))
     goto error;
+    
+  set_nonblock(fd);
   
   return fd;
   
@@ -293,26 +295,15 @@ overlay_interface * overlay_interface_find(struct in_addr addr, int return_defau
   return ret;
 }
 
-// find an interface by name
-overlay_interface * overlay_interface_find_name(const char *name){
-  int i;
-  for (i=0;i<OVERLAY_MAX_INTERFACES;i++){
-    if (overlay_interfaces[i].state!=INTERFACE_STATE_UP)
-      continue;
-    if (strcasecmp(name, overlay_interfaces[i].name) == 0)
-      return &overlay_interfaces[i];
-  }
-  return NULL;
-}
-
-// find an interface by name and address
+// find an interface by name and/or exact address
 overlay_interface * overlay_interface_find_name_addr(const char *name, struct socket_address *addr){
   int i;
+  assert(name || addr);
   for(i = 0; i < OVERLAY_MAX_INTERFACES; i++){
     if (overlay_interfaces[i].state==INTERFACE_STATE_DOWN)
       continue;
     
-    if (cmp_sockaddr(addr, &overlay_interfaces[i].address)==0
+    if ((!addr || cmp_sockaddr(addr, &overlay_interfaces[i].address)==0)
       && (!name || strcasecmp(overlay_interfaces[i].name, name)==0)){
       return &overlay_interfaces[i];
     }
@@ -379,12 +370,8 @@ overlay_interface_read_any(struct sched_ent *alarm)
     
     /* Read only one UDP packet per call to share resources more fairly, and also
      enable stats to accurately count packets received */
-    plen = recvwithttl(alarm->poll.fd, packet, sizeof(packet), &recvttl, &recvaddr);
+    plen = recv_message(alarm->poll.fd, &recvaddr, &recvttl, packet, sizeof(packet));
     if (plen == -1) {
-      WHYF_perror("recvwithttl(%d,%p,%zu,&%d,%p(%s))",
-	    alarm->poll.fd, packet, sizeof packet, recvttl,
-	    &recvaddr, alloca_socket_address(&recvaddr)
-	  );
       unwatch(alarm);
       close(alarm->poll.fd);
       return;
@@ -452,11 +439,13 @@ static int overlay_interface_init_any(int port)
 
 static void calc_next_tick(struct overlay_interface *interface)
 {
-  time_ms_t interval = interface->destination->ifconfig.tick_ms;
-  // only tick every 5s if we have no neighbours here
-  if (interval < 5000 && !link_interface_has_neighbours(interface))
-    interval = 5000;
-  
+  int interval;
+  if (link_interface_has_neighbours(interface))
+    interval = interface->destination->ifconfig.tick_ms;
+  else
+    // tick slower if we have no neighbours
+    interval = interface->ifconfig.idle_tick_ms;
+
   time_ms_t next_tick = interface->destination->last_tx+interval;
   if (!interface->destination->ifconfig.tick_ms){
     next_tick=TIME_MS_NEVER_WILL;
@@ -527,8 +516,10 @@ int overlay_destination_configure(struct network_destination *dest, const struct
     return WHYF("No tick interval specified for destination");
     
   if (dest->ifconfig.reachable_timeout_ms<0)
-    dest->ifconfig.reachable_timeout_ms = tick_ms>0 ? tick_ms * 5 : 2500;
-  
+    dest->ifconfig.reachable_timeout_ms = dest->ifconfig.tick_ms>0 ? dest->ifconfig.tick_ms * 5 : 2500;
+  DEBUGF(linkstate, "Configured destination, tick %d, reachable %d", 
+    dest->ifconfig.tick_ms,
+    dest->ifconfig.reachable_timeout_ms);
     
   limit_init(&dest->transfer_limit, dest->ifconfig.packet_interval);
   
@@ -650,15 +641,12 @@ overlay_interface_init(const char *name,
     return -1;
   
   interface->state=INTERFACE_STATE_UP;
-  monitor_tell_formatted(MONITOR_INTERFACE, "\nINTERFACE:%s:UP\n", interface->name);
   INFOF("Interface %s addr %s, is up",interface->name, alloca_socket_address(addr));
-  
-  directory_registration();
-  
   INFOF("Allowing a maximum of %d packets every %"PRId64"ms",
         interface->destination->transfer_limit.burst_size,
         interface->destination->transfer_limit.burst_length);
-
+  
+  CALL_TRIGGER(iupdown, interface);
   return 0;
   
 cleanup:
@@ -682,12 +670,8 @@ static void interface_read_dgram(struct overlay_interface *interface)
   /* Read only one UDP packet per call to share resources more fairly, and also
    enable stats to accurately count packets received */
   int recvttl=1;
-  plen = recvwithttl(interface->alarm.poll.fd,packet, sizeof(packet), &recvttl, &recvaddr);
+  plen = recv_message(interface->alarm.poll.fd, &recvaddr, &recvttl, packet, sizeof(packet));
   if (plen == -1) {
-    WHYF_perror("recvwithttl(%d,%p,%zu,&%d,%p(%s))",
-	  interface->alarm.poll.fd, packet, sizeof packet, recvttl,
-	  &recvaddr, alloca_socket_address(&recvaddr)
-	);
     overlay_interface_close(interface);
     return;
   }
@@ -1058,23 +1042,27 @@ int overlay_broadcast_ensemble(struct network_destination *destination, struct o
 		  bytes, (size_t)len, 0, 
 		  &destination->address.addr, destination->address.addrlen);
 	if (sent == -1){
-	  if (errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=ENOENT && errno!=ENOTDIR)
+	  if (errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=ENOENT && errno!=ENOTDIR){
 	    WHYF_perror("sendto(fd=%d,len=%zu,addr=%s) on interface %s",
 		interface->alarm.poll.fd,
 		(size_t)len,
 		alloca_socket_address(&destination->address),
 		interface->name
 	      );
-	  // close the interface if we had any error while sending broadcast packets,
-	  // unicast packets should not bring the interface down
-	  // TODO mark unicast destination as failed?
-	  if (destination == interface->destination)
-	    overlay_interface_close(interface);
+	    
+	    // if we had any error while sending broadcast packets,
+	    // it could be because the interface is coming down
+	    // or there might be some socket error that we can't fix.
+	    // So bring the interface down, and scan for network changes soon
+	    if (destination == interface->destination){
+	      overlay_interface_close(interface);
+	      rescan_soon(gettime_ms()+100);
+	    }
+	  }
 	  ob_free(buffer);
 	  return -1;
 	}
       }
-      set_block(interface->alarm.poll.fd);
       ob_free(buffer);
       return 0;
     }
@@ -1162,101 +1150,134 @@ static int interface_unregister(const char *name,
 }
 
 DEFINE_ALARM(netlink_poll);
+static int netlink_send_get()
+{
+  struct {
+    struct nlmsghdr n;
+    struct ifaddrmsg r;
+    uint8_t alignment_padding[64];
+  } req;
+  
+  memset(&req, 0, sizeof(req));
+  req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifaddrmsg));
+  req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT;
+  req.n.nlmsg_type = RTM_GETADDR;
+  req.r.ifa_family = AF_INET;
+  struct rtattr *rta = (struct rtattr *)(((char *)&req) + NLMSG_ALIGN(req.n.nlmsg_len));
+  rta->rta_len = RTA_LENGTH(4);
+  
+  int fd = ALARM_STRUCT(netlink_poll).poll.fd;
+  if (fd<0)
+    return -1;
+  if (send(fd, &req, req.n.nlmsg_len, 0)<0)
+    return WHYF_perror("send(%d)", fd);
+  
+  DEBUG(overlayinterfaces, "Sent RTM_GETADDR");
+  return 0;
+}
+
 void netlink_poll(struct sched_ent *alarm)
 {
-  uint8_t buff[4096];
-  ssize_t len = recv(alarm->poll.fd, buff, sizeof buff, 0);
-  if (len<=0)
-    return;
-    
-  DEBUGF(overlayinterfaces, "recv(%d) len %u", alarm->poll.fd, len);
-    
-  struct nlmsghdr *nlh = (struct nlmsghdr *)buff;
-  for (nlh = (struct nlmsghdr *)buff; (NLMSG_OK (nlh, len)) && (nlh->nlmsg_type != NLMSG_DONE); nlh = NLMSG_NEXT(nlh, len)){
-    
-    switch(nlh->nlmsg_type){
-      case RTM_NEWADDR:
-      case RTM_DELADDR:
-      {
-	struct ifaddrmsg *ifa = (struct ifaddrmsg *) NLMSG_DATA (nlh);
-	
-	// ignore loopback addresses
-	if (ifa->ifa_scope == RT_SCOPE_HOST)
-	  continue;
-	  
-	struct rtattr *rth = IFA_RTA (ifa);
-	int rtl = IFA_PAYLOAD (nlh);
-	
-	// ifa->ifa_family;
-	// ifa->ifa_prefixlen;
-	const char *name=NULL;
-	
-	struct socket_address addr, broadcast, netmask_addr;
-	bzero(&addr, sizeof(addr));
-	bzero(&broadcast, sizeof(broadcast));
-	bzero(&netmask_addr, sizeof(netmask_addr));
-	
-	addr.addr.sa_family = broadcast.addr.sa_family = netmask_addr.addr.sa_family = ifa->ifa_family;
-	
-	if (ifa->ifa_family == AF_INET){
-	  addr.addrlen = broadcast.addrlen = netmask_addr.addrlen = sizeof(addr.inet);
-	}else{
-	  DEBUGF(overlayinterfaces, "Ignoring family %d", ifa->ifa_family);
-	  continue;
-	}
-	
-	for (;rtl && RTA_OK (rth, rtl); rth = RTA_NEXT (rth,rtl)){
-	  void *data = RTA_DATA(rth);
-	  
-	  switch(rth->rta_type){
-	    case IFA_LOCAL:
-	      addr.inet.sin_addr.s_addr = *((uint32_t *)data);
-	      break;
-	    case IFA_LABEL:
-	      name = RTA_DATA(rth);
-	      break;
-	    case IFA_BROADCAST:
-	      broadcast.inet.sin_addr.s_addr = *((uint32_t *)data);
-	      break;
-	  }
-	}
-	
-	if (!name){
-	  WARNF_perror("Interface name not provided by IFA_LABEL");
-	  continue;
-	}
-	
+  
+  if (alarm->poll.revents & POLLIN){
+    uint8_t buff[4096];
+    ssize_t len = recv(alarm->poll.fd, buff, sizeof buff, 0);
+    if (len<=0)
+      return;
+      
+    DEBUGF(overlayinterfaces, "recv(%d) len %u", alarm->poll.fd, len);
+      
+    struct nlmsghdr *nlh = (struct nlmsghdr *)buff;
+    for (nlh = (struct nlmsghdr *)buff; (NLMSG_OK (nlh, (size_t)len)) && (nlh->nlmsg_type != NLMSG_DONE); nlh = NLMSG_NEXT(nlh, len)){
+      
+      switch(nlh->nlmsg_type){
+	case RTM_NEWADDR:
+	case RTM_DELADDR:
 	{
-	  //calculate netmask
-	  unsigned prefix = ifa->ifa_prefixlen;
-	  if (prefix>32) 
-	    prefix=32;
-	  char *c = (char *)&netmask_addr.inet.sin_addr.s_addr;
-	  unsigned i;
-	  for (i=0;i<(prefix/8);i++)
-	    *c++ = 0xFF;
-	  if (prefix %8)
-	    *c = 0xFF << (8 - (prefix %8));
+	  struct ifaddrmsg *ifa = (struct ifaddrmsg *) NLMSG_DATA (nlh);
+	  
+	  // ignore loopback addresses
+	  if (ifa->ifa_scope == RT_SCOPE_HOST)
+	    continue;
+	    
+	  struct rtattr *rth = IFA_RTA (ifa);
+	  int rtl = IFA_PAYLOAD (nlh);
+	  
+	  // ifa->ifa_family;
+	  // ifa->ifa_prefixlen;
+	  const char *name=NULL;
+	  
+	  struct socket_address addr, broadcast, netmask_addr;
+	  bzero(&addr, sizeof(addr));
+	  bzero(&broadcast, sizeof(broadcast));
+	  bzero(&netmask_addr, sizeof(netmask_addr));
+	  
+	  addr.addr.sa_family = broadcast.addr.sa_family = netmask_addr.addr.sa_family = ifa->ifa_family;
+	  
+	  if (ifa->ifa_family == AF_INET){
+	    addr.addrlen = broadcast.addrlen = netmask_addr.addrlen = sizeof(addr.inet);
+	  }else{
+	    DEBUGF(overlayinterfaces, "Ignoring family %d", ifa->ifa_family);
+	    continue;
+	  }
+	  
+	  for (;rtl && RTA_OK (rth, rtl); rth = RTA_NEXT (rth,rtl)){
+	    void *data = RTA_DATA(rth);
+	    
+	    switch(rth->rta_type){
+	      case IFA_LOCAL:
+		addr.inet.sin_addr.s_addr = *((uint32_t *)data);
+		break;
+	      case IFA_LABEL:
+		name = RTA_DATA(rth);
+		break;
+	      case IFA_BROADCAST:
+		broadcast.inet.sin_addr.s_addr = *((uint32_t *)data);
+		break;
+	    }
+	  }
+	  
+	  if (!name){
+	    WARNF_perror("Interface name not provided by IFA_LABEL");
+	    continue;
+	  }
+	  
+	  {
+	    //calculate netmask
+	    unsigned prefix = ifa->ifa_prefixlen;
+	    if (prefix>32) 
+	      prefix=32;
+	    char *c = (char *)&netmask_addr.inet.sin_addr.s_addr;
+	    unsigned i;
+	    for (i=0;i<(prefix/8);i++)
+	      *c++ = 0xFF;
+	    if (prefix %8)
+	      *c = 0xFF << (8 - (prefix %8));
+	  }
+	  
+	  if (nlh->nlmsg_type==RTM_NEWADDR){
+	    DEBUGF(overlayinterfaces, "New addr %s, %s, %s, %s", 
+	      name,
+	      alloca_socket_address(&addr),
+	      alloca_socket_address(&broadcast),
+	      alloca_socket_address(&netmask_addr)
+	    );
+	    overlay_interface_register(name, &addr, &netmask_addr, &broadcast);
+	  }else if (nlh->nlmsg_type==RTM_DELADDR){
+	    DEBUGF(overlayinterfaces, "Del addr %s, %s", 
+	      name,
+	      alloca_socket_address(&addr)
+	    );
+	    interface_unregister(name, &addr);
+	  }
+	  break;
 	}
-	
-	if (nlh->nlmsg_type==RTM_NEWADDR){
-	  DEBUGF(overlayinterfaces, "New addr %s, %s, %s, %s", 
-	    name,
-	    alloca_socket_address(&addr),
-	    alloca_socket_address(&broadcast),
-	    alloca_socket_address(&netmask_addr)
-	  );
-	  overlay_interface_register(name, &addr, &netmask_addr, &broadcast);
-	}else if (nlh->nlmsg_type==RTM_DELADDR){
-	  DEBUGF(overlayinterfaces, "Del addr %s, %s", 
-	    name,
-	    alloca_socket_address(&addr)
-	  );
-	  interface_unregister(name, &addr);
-	}
-	break;
       }
     }
+  }
+  
+  if (alarm->poll.revents == 0){
+    netlink_send_get();
   }
 }
 
@@ -1279,28 +1300,6 @@ static int netlink_socket()
   return sock;
 }
 
-static int netlink_send_get(int fd)
-{
-  struct {
-    struct nlmsghdr n;
-    struct ifaddrmsg r;
-  } req;
-  
-  memset(&req, 0, sizeof(req));
-  req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifaddrmsg));
-  req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT;
-  req.n.nlmsg_type = RTM_GETADDR;
-  req.r.ifa_family = AF_INET;
-  struct rtattr *rta = (struct rtattr *)(((char *)&req) + NLMSG_ALIGN(req.n.nlmsg_len));
-  rta->rta_len = RTA_LENGTH(4);
-  
-  if (send(fd, &req, req.n.nlmsg_len, 0)<0)
-    return WHYF_perror("send(%d)", fd);
-  
-  DEBUG(overlayinterfaces, "Sent RTM_GETADDR");
-  return 0;
-}
-
 // send a request to the kernel to get all interface addresses now
 // eg on config change
 static int netlink_init()
@@ -1315,7 +1314,7 @@ static int netlink_init()
     watch(alarm);
   }
   
-  return netlink_send_get(alarm->poll.fd);
+  return 0;
 }
 
 #else
@@ -1406,6 +1405,24 @@ static void file_interface_init(const struct config_network_interface *ifconfig)
   overlay_interface_init(ifconfig->file, &addr, &netmask, &broadcast, ifconfig);
 }
 
+static void rescan_soon(time_ms_t run_at){
+  
+#ifdef HAVE_LINUX_NETLINK_H
+  struct sched_ent *alarm = &ALARM_STRUCT(netlink_poll);
+  
+  // start listening for network changes & request current interface addresses soon
+  if (netlink_init()<0)
+    return;
+  
+#else
+  // re-check all interfaces periodically
+  struct sched_ent *alarm = &ALARM_STRUCT(overlay_interface_discover);
+  
+#endif
+
+  RESCHEDULE(alarm, run_at, run_at, run_at);
+}
+
 void overlay_interface_config_change()
 {
   unsigned i;
@@ -1449,16 +1466,8 @@ void overlay_interface_config_change()
     file_interface_init(ifconfig);
   }
   
-  if (real_interface){
-#ifdef HAVE_LINUX_NETLINK_H
-    // start listening for network changes & request current interface addresses
-    netlink_init();
-#else
-    // re-check all interfaces periodically
-    time_ms_t now = gettime_ms();
-    RESCHEDULE(&ALARM_STRUCT(overlay_interface_discover), now, now, now);
-#endif
-  }
+  if (real_interface)
+    rescan_soon(gettime_ms());
 }
 
 void logServalPacket(int level, struct __sourceloc __whence, const char *message, const unsigned char *packet, size_t len) {

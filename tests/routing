@@ -44,7 +44,7 @@ link_matches() {
    done
    sid="$1"
    tfw_log "Looking for link ${sid}, ${link_type}, ${interface_ex}, ${via}"
-   if ! grep "^${sid}:${link_type}:${interface_ex}:${via}\$" $_tfw_tmp/stdout; then
+   if ! $GREP "^${sid}:${link_type}:${interface_ex}:${via}:" $_tfw_tmp/stdout; then
       tfw_log "Link not found"
       return 1
    fi
@@ -276,9 +276,9 @@ start_fakeradio() {
    $servald_build_root/fakeradio 4 1 > "$SERVALD_VAR/radioout" 2> "$SERVALD_VAR/radioerr" &
    FAKERADIO_PID=$!
    wait_until $GREP "^right:" "$SERVALD_VAR/radioout"
-   local _line=`head "$SERVALD_VAR/radioout" -n 1`
+   local _line=`head -n 1 "$SERVALD_VAR/radioout"`
    END1="${_line#*:}"
-   _line=`tail "$SERVALD_VAR/radioout" -n 1`
+   _line=`tail -n 1 "$SERVALD_VAR/radioout"`
    END2="${_line#*:}"
    tfw_log "Started fakeradio pid=$FAKERADIO_PID, end1=$END1, end2=$END2"
 }
@@ -301,6 +301,7 @@ setup_simulate_extender() {
          set debug.radio_link on \
          set interfaces.1.type CATEAR \
          set interfaces.1.broadcast.tick_ms 5000 \
+         set interfaces.1.idle_tick_ms 5000 \
          set interfaces.1.socket_type STREAM \
          set interfaces.1.broadcast.encapsulation SINGLE \
          set interfaces.1.point_to_point on
@@ -329,6 +330,7 @@ setup_lowband_broadcast() {
 	set interfaces.1.broadcast.packet_interval 2000000 \
 	set interfaces.1.broadcast.transmit_timeout_ms 6200 \
 	set interfaces.1.broadcast.tick_ms 15000 \
+	set interfaces.1.idle_tick_ms 30000 \
 	set interfaces.1.broadcast.mtu 210 \
 	set interfaces.1.broadcast.route off \
 	set interfaces.1.unicast.send off
@@ -445,8 +447,41 @@ test_scan_one() {
    tfw_cat --stdout --stderr
 }
 
+setup_fixedAddress() {
+   setup_servald
+   assert_no_servald_processes
+   foreach_instance +A +B create_single_identity
+   foreach_instance +A +B executeOk_servald config \
+      set server.interface_path "$SERVALD_VAR" \
+      set interfaces.0.file dummy1 \
+      set interfaces.0.socket_type file \
+      set interfaces.0.type wifi \
+      set interfaces.0.broadcast.send off \
+      set interfaces.0.broadcast.drop on \
+      set interfaces.0.default_route 1 \
+      set interfaces.0.dummy_netmask 255.255.255.0
+   set_instance +A
+   executeOk_servald config \
+      set hosts.$SIDB.address 10.0.2.1 \
+      set interfaces.0.dummy_address 10.0.1.1
+   set_instance +B
+   executeOk_servald config \
+      set interfaces.0.dummy_address 10.0.2.1
+   touch "$SERVALD_VAR/dummy1"
+   foreach_instance +A +B start_servald_server
+   foreach_instance +A +B \
+      wait_until interface_up
+}
+doc_fixedAddress="Establish a link from a configured fixed address"
+test_fixedAddress() {
+   set_instance +A
+   executeOk_servald mdp ping --timeout=3 $SIDB 5
+   tfw_cat --stdout
+   wait_until path_exists +A +B
+}
+
 scan_completed() {
-  grep "Scan completed" $instance_servald_log || return 1
+  $GREP "Scan completed" $instance_servald_log || return 1
   return 0
 }
 
@@ -696,6 +731,7 @@ setup_noLinkPollution() {
 # TODO re-roll identities until there's no possible SID prefix collision?
    foreach_instance +A +B +C +D create_single_identity
    foreach_instance +A +B +C +D add_servald_interface 1
+   foreach_instance +A +B +C +D executeOk_servald config set debug.subscriber on
    foreach_instance +A +B +C start_servald_server
    simulator_command up "net1"
    wait_until path_exists +A +B
@@ -713,7 +749,9 @@ test_noLinkPollution() {
    set_instance +D
    executeOk_servald id allpeers
    tfw_cat --stdout
-   assertStdoutLineCount '==' 3
+# The test is considered a success if D doesn't find out about BOTH B and C
+# There is still a chance that 3 ID's will have the same 16 bit prefix, but those are fairly slim odds
+   assertStdoutLineCount '<' 5
 }
 
 setup_multi_interface() {
@@ -768,8 +806,8 @@ test_ping_unreliable_1hop() {
    set_instance +A
    executeOk_servald mdp ping --interval=0.100 --timeout=3 --wait-for-duplicates $SIDB 100
    tfw_cat --stdout --stderr
-   received=$(sed -n -e 's/.*\<\([0-9]\+\) packets received.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
-   duplicates=$(sed -n -e 's/.*\<\([0-9]\+\) duplicates.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
+   received=$($SED -n -e 's/.*\<\([0-9][0-9]*\) packets received.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
+   duplicates=$($SED -n -e 's/.*\<\([0-9][0-9]*\) duplicates.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
    assert [ "$received" -ge 98 ]
    assert [ "$duplicates" -le 2 ]
 }
@@ -798,8 +836,8 @@ test_ping_unreliable_2hop() {
    set_instance +A
    executeOk_servald mdp ping --interval=0.100 --timeout=3 --wait-for-duplicates $SIDC 100
    tfw_cat --stdout --stderr
-   received=$(sed -n -e 's/.*\<\([0-9]\+\) packets received.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
-   duplicates=$(sed -n -e 's/.*\<\([0-9]\+\) duplicates.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
+   received=$($SED -n -e 's/.*\<\([0-9]\+\) packets received.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
+   duplicates=$($SED -n -e 's/.*\<\([0-9]\+\) duplicates.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
    assert [ "$received" -ge 98 ]
    assert [ "$duplicates" -le 5 ]
 }
@@ -881,8 +919,8 @@ test_unreliable_links() {
    set_instance +A
    executeOk_servald mdp ping --interval=0.100 --timeout=3 --wait-for-duplicates $SIDC 50
    tfw_cat --stdout --stderr
-   received=$(sed -n -e 's/.*\<\([0-9]\+\) packets received.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
-   duplicates=$(sed -n -e 's/.*\<\([0-9]\+\) duplicates.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
+   received=$($SED -n -e 's/.*\<\([0-9]\+\) packets received.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
+   duplicates=$($SED -n -e 's/.*\<\([0-9]\+\) duplicates.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
    assert [ "$received" -ge 20 ]
    assert [ "$duplicates" -le 10 ]
    # make sure the path is still there.
@@ -927,8 +965,8 @@ test_unreliable_links2() {
    set_instance +A
    executeOk_servald mdp ping --interval=0.100 --timeout=3 --wait-for-duplicates $SIDD 50
    tfw_cat --stdout --stderr
-   received=$(sed -n -e 's/.*\<\([0-9]\+\) packets received.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
-   duplicates=$(sed -n -e 's/.*\<\([0-9]\+\) duplicates.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
+   received=$($SED -n -e 's/.*\<\([0-9]\+\) packets received.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
+   duplicates=$($SED -n -e 's/.*\<\([0-9]\+\) duplicates.*/\1/p' "$TFWSTDOUT") || error "malformed ping output"
    assert [ "$received" -ge 20 ]
    assert [ "$duplicates" -le 10 ]
    wait_until --timeout=20 path_exists +A +B +C +D
