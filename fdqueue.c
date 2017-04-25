@@ -201,9 +201,9 @@ void _schedule(struct __sourceloc __whence, struct sched_ent *alarm)
   if (!alarm->stats)
     WARN("schedule() called without supplying an alarm stats");
   
-  assert(alarm->wake_at >= alarm->run_after);
-  assert(alarm->run_before >= alarm->run_after);
-  assert(!is_scheduled(alarm));
+//  assert(alarm->wake_at >= alarm->run_after);
+//  assert(alarm->run_before >= alarm->run_after);
+//  assert(!is_scheduled(alarm));
   assert(alarm->function);
   
   // TODO assert if the alarm times look odd? eg >1s ago or >1hr from now?
