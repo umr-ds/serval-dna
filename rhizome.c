@@ -611,10 +611,6 @@ void rhizome_apply_contentfilters(rhizome_manifest *m){
     char filepath[1024];
     unsigned int i;
     
-    if (0 != strcmp("file", m->service)){
-        return;
-    }
-    
     for (i = 0; i < config.rhizome.contentfilters.ac; i++){
         rhizome_apply_contentfilter(&config.rhizome.contentfilters.av[i].value, m, filepath, &filestatus);
     }
@@ -640,6 +636,9 @@ void rhizome_apply_contentfilter(const struct config_rhizome_contentfilter *filt
     char ext_match = 0;
     unsigned int i;
     
+    match &= !strcmp(filter->service, m->service);
+    DEBUGF(rhizome, "Contentfilters service: %s, rhizome_service: %s, match: %i", filter->service, m->service, match);
+
     if (filter->extensions.ac > 0){
         if (file_ext[0] == '\0'){
             match &= filter->match_noextension;
