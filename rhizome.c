@@ -609,10 +609,12 @@ void rhizome_apply_contentfilters(rhizome_manifest *m){
     
     enum rhizome_payload_status filestatus = RHIZOME_PAYLOAD_STATUS_STORED;
     char filepath[1024];
+    enum rhizome_payload_status manifeststatus = RHIZOME_PAYLOAD_STATUS_STORED;
+    char manifestpath[1024];
     unsigned int i;
     
     for (i = 0; i < config.rhizome.contentfilters.ac; i++){
-        rhizome_apply_contentfilter(&config.rhizome.contentfilters.av[i].value, m, filepath, &filestatus);
+        rhizome_apply_contentfilter(&config.rhizome.contentfilters.av[i].value, m, filepath, &filestatus, manifestpath, &manifeststatus);
     }
 
     // remove potentially created file
@@ -625,9 +627,20 @@ void rhizome_apply_contentfilters(rhizome_manifest *m){
             DEBUGF(rhizome, "File deleted: %s", filepath);
         }
     }
+
+    // remove potentially created manifest
+    if( manifeststatus == RHIZOME_PAYLOAD_STATUS_STORED ) {
+        // file exists
+        if ( 0 != remove(manifestpath) ){
+            // removing file failed
+            WARNF("Couldn't remove manifest: %s", manifestpath);
+        } else {
+            DEBUGF(rhizome, "Manifest deleted: %s", manifestpath);
+        }
+    }
 }
 
-void rhizome_apply_contentfilter(const struct config_rhizome_contentfilter *filter, rhizome_manifest *m, char filepath[1024], enum rhizome_payload_status *filestatus){
+void rhizome_apply_contentfilter(const struct config_rhizome_contentfilter *filter, rhizome_manifest *m, char filepath[1024], enum rhizome_payload_status *filestatus, char manifestpath[1024], enum rhizome_payload_status *manifeststatus){
     
     char file_ext[32];
     get_file_extension(m->name, file_ext);
@@ -685,7 +698,13 @@ void rhizome_apply_contentfilter(const struct config_rhizome_contentfilter *filt
             return;
         }
         
-        rhizome_excecute_filter_binary(m, filter->bin, filter->author, filepath);
+        *manifeststatus = rhizome_export_manifest(m, manifestpath);
+        if ( *manifeststatus == RHIZOME_PAYLOAD_STATUS_ERROR ){
+            WARNF("Rhizome manifest %s couldn't be exported.", m->name);
+            return;
+        }
+
+        rhizome_excecute_filter_binary(m, filter->bin, filter->author, filepath, manifestpath);
     }
 }
 
@@ -760,12 +779,46 @@ int rhizome_export_or_link_blob(rhizome_manifest *m, char return_buffer[1024]){
     return extract_status;
 }
 
+/*
+ exports a bundle manifest
+ */
+int rhizome_export_manifest(rhizome_manifest *m, char return_buffer[1024]){
+
+    char buffer[1024];
+
+    // generate tmp export path
+    if (!FORMF_SERVAL_TMP_PATH(buffer, "%s.manifest", alloca_tohex_rhizome_filehash_t(m->filehash)))
+        return RHIZOME_PAYLOAD_STATUS_ERROR;
+
+    // if file already exists in tmp, return the path
+    if( access( buffer, R_OK ) == 0 ) {
+        DEBUGF(rhizome, "Manifest was already exported: %s", buffer);
+        memcpy(return_buffer, buffer, 1024);
+        return RHIZOME_PAYLOAD_STATUS_STORED;
+    }
+
+    // export file to tmp path
+    DEBUGF(rhizome, "Manifest %s does not exist in tmp", buffer);
+    enum rhizome_payload_status extract_status;
+    if ( 0 != rhizome_write_manifest_file(m, buffer, 0) ){
+        extract_status = RHIZOME_PAYLOAD_STATUS_ERROR;
+    } else {
+        extract_status = RHIZOME_PAYLOAD_STATUS_STORED;
+    }
+    chmod(buffer, (S_IRUSR | S_IRGRP | S_IROTH));
+    DEBUGF(rhizome, "Manifest exported: %s; status: %s", buffer, rhizome_payload_status_message(extract_status));
+
+    memcpy(return_buffer, buffer, 1024);
+    return extract_status;
+}
+
+
 /* 
  excecutes filter binary bin following the Contentfilter Calling Conventions
  if successful, the return value is binary anded to manifest status.
  returns nothing, filters are not applied if failing
  */
-void rhizome_excecute_filter_binary(rhizome_manifest *m, const char bin[1024], sid_t sid, char filepath[1024]){
+void rhizome_excecute_filter_binary(rhizome_manifest *m, const char bin[1024], sid_t sid, char filepath[1024], char manifestpath[1024]){
     
     int status;
     pid_t pid = vfork();
@@ -775,7 +828,7 @@ void rhizome_excecute_filter_binary(rhizome_manifest *m, const char bin[1024], s
         char filesize_string[32];
         DEBUGF(rhizome, "MY SID: %s", alloca_tohex_sid_t(sid));
         sprintf(filesize_string, "%"PRIu64, m->filesize);
-        execlp(bin, bin, filepath, m->name, filesize_string, alloca_tohex_rhizome_filehash_t(m->filehash), alloca_tohex_sid_t(sid), NULL);
+        execlp(bin, bin, m->name, filepath, manifestpath, NULL);
         // if exec() was successful, this won't be reached
         WARNF("executing filter binary went wrong: %s", strerror(errno));
     }

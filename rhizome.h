@@ -524,10 +524,11 @@ enum rhizome_bundle_status rhizome_add_manifest_to_store(rhizome_manifest *m_in,
 
 void rhizome_apply_contentfilters(rhizome_manifest *m);
 int rhizome_export_or_link_blob(rhizome_manifest *m, char return_buffer[1024]);
-void rhizome_excecute_filter_binary(rhizome_manifest *m, const char bin[1024], sid_t sid, char filepath[1024]);
+int rhizome_export_manifest(rhizome_manifest *m, char return_buffer[1024]);
+void rhizome_excecute_filter_binary(rhizome_manifest *m, const char bin[1024], sid_t sid, char filepath[1024], char manifestpath[1024]);
 
 struct config_rhizome_contentfilter;
-void rhizome_apply_contentfilter(const struct config_rhizome_contentfilter *filter, rhizome_manifest *m, char filepath[1024], enum rhizome_payload_status *filestatus);
+void rhizome_apply_contentfilter(const struct config_rhizome_contentfilter *filter, rhizome_manifest *m, char filepath[1024], enum rhizome_payload_status *filestatus, char manifestpath[1024], enum rhizome_payload_status *manifeststatus);
 void get_file_extension(const char* filename, char file_ext[32]);
 
 void rhizome_bytes_to_hex_upper(unsigned const char *in, char *out, int byteCount);
