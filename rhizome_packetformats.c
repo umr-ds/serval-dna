@@ -147,6 +147,10 @@ uint64_t rhizome_bar_bidprefix_ll(const rhizome_bar_t *bar)
 
 /* Queue an advertisment for a single manifest */
 int rhizome_advertise_manifest(struct subscriber *dest, rhizome_manifest *m){
+  int sync_manifest = rhizome_apply_announce_hook(m, dest);
+  if (sync_manifest == 0) {
+    return -1;
+  }
   struct overlay_frame *frame = malloc(sizeof(struct overlay_frame));
   bzero(frame,sizeof(struct overlay_frame));
   frame->type = OF_TYPE_RHIZOME_ADVERT;
