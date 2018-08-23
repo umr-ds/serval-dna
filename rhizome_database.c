@@ -172,7 +172,8 @@ void verify_bundles()
 	      "sender = ?, "
 	      "recipient = ?, "
 	      "tail = ?, "
-	      "manifest_hash = ? "
+	      "manifest_hash = ?, "
+          "active = ?"
 	    "WHERE ROWID = ?;",
 	    RHIZOME_BID_T, &m->keypair.public_key,
 	    INT64, m->version,
@@ -186,6 +187,7 @@ void verify_bundles()
 	    SID_T|NUL, m->has_recipient ? &m->recipient : NULL,
 	    INT64, m->tail,
 	    RHIZOME_FILEHASH_T, &m->manifesthash,
+        INT, m->active,
 	    INT64, rowid,
 	    END
 	  )!=-1)
@@ -354,7 +356,8 @@ int rhizome_opendb()
 		      "sender text collate nocase, "
 		      "recipient text collate nocase, "
 		      "tail integer, "
-		      "manifest_hash text collate nocase"
+		      "manifest_hash text collate nocase, "
+              "active integer"
 		  ");", END) == -1
       ||	sqlite_exec_void_retry(&retry, 
 		  "CREATE TABLE IF NOT EXISTS FILES("
@@ -1486,6 +1489,9 @@ enum rhizome_bundle_status rhizome_add_manifest_to_store(rhizome_manifest *m, rh
   if (status != RHIZOME_BUNDLE_STATUS_NEW)
     return status;
 
+  if(status == RHIZOME_BUNDLE_STATUS_NEW)
+    m->active = rhizome_apply_content_hook(m);
+
   if (mout && *mout){
     if (m != *mout)
       rhizome_manifest_free(*mout);
@@ -1524,9 +1530,10 @@ enum rhizome_bundle_status rhizome_add_manifest_to_store(rhizome_manifest *m, rh
 	  "sender,"
 	  "recipient,"
 	  "tail,"
-	  "manifest_hash"
+	  "manifest_hash,"
+      "active"
 	") VALUES("
-	  "?,?,?,?,?,?,?,?,?,?,?,?,?,?"
+	  "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?"
 	");",
 	RHIZOME_BID_T, &m->keypair.public_key,
 	STATIC_BLOB, m->manifestdata, m->manifest_all_bytes,
@@ -1543,6 +1550,7 @@ enum rhizome_bundle_status rhizome_add_manifest_to_store(rhizome_manifest *m, rh
 	SID_T|NUL, m->has_recipient ? &m->recipient : NULL,
 	INT64, m->tail,
 	RHIZOME_FILEHASH_T, &m->manifesthash,
+    INT, m->active,
 	END
       )
   ) == NULL)
@@ -2177,6 +2185,24 @@ enum rhizome_bundle_status rhizome_is_bar_interesting(const rhizome_bar_t *bar)
   strcat(id_hex, "%");
   return is_interesting(id_hex, rhizome_bar_version(bar), NULL);
 }
+
+int rhizome_change_active(const rhizome_bid_t *bid, int state)
+{
+    sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
+    sqlite3_stmt *statement = sqlite_prepare_bind(&retry,
+                                                  "UPDATE MANIFESTS SET active = ? WHERE id = ?",
+                                                  INT, state,
+                                                  RHIZOME_BID_T, bid,
+                                                  END);
+
+    if (!statement)
+        return -1;
+
+    if (sqlite_exec_retry(&retry, statement) == -1)
+        return -1;
+    return sqlite3_changes(rhizome_database.db) ? 0 : 1;
+}
+
 
 enum rhizome_bundle_status rhizome_is_interesting(const rhizome_bid_t *bid, uint64_t version, uint64_t *filesizep)
 {

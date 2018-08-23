@@ -305,6 +305,12 @@ static void sync_lookup_bar(struct subscriber *peer, struct rhizome_sync_keys *s
   struct transfers *transfer = *ptr;
   enum rhizome_bundle_status status = rhizome_retrieve_manifest_by_hash_prefix(transfer->key.key, sizeof(sync_key_t), m);
 
+  int sync_manifest = rhizome_apply_announce_hook(m, peer);
+  if (sync_manifest == 0) {
+    rhizome_manifest_free(m);
+    return;
+  }
+
   if (status == RHIZOME_BUNDLE_STATUS_SAME){
     int rank = sync_manifest_rank(m, peer, 1, 0);
 
@@ -770,6 +776,13 @@ static int process_transfer_message(struct subscriber *peer, struct rhizome_sync
 	  return 1;
 	}
 	
+
+	int download_bundle = rhizome_apply_download_hook(m);
+	if (download_bundle == 0) {
+		rhizome_manifest_free(m);
+		break;
+	}
+
 	// start writing the payload
 	
 	enum rhizome_payload_status status;

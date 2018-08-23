@@ -266,6 +266,13 @@ int overlay_rhizome_saw_advertisements(struct decode_context *context, struct ov
       assert(cmp_rhizome_bid_t(&m->keypair.public_key, &summ.bid) == 0);
       assert(m->version == summ.version);
       assert(m->manifest_body_bytes == summ.body_len);
+
+      int download_bundle = rhizome_apply_download_hook(m);
+	  if (download_bundle == 0) {
+		// ignore bundle for one minute
+		rhizome_queue_ignore_manifest(m->keypair.public_key.binary, sizeof m->keypair.public_key.binary, 60000);
+		goto next;
+	  }
       
       // start the fetch process!
       rhizome_suggest_queue_manifest_import(m, &httpaddr, f->source);

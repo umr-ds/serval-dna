@@ -109,6 +109,7 @@ SERVAL_DAEMON_SOURCES = \
 	rhizome_direct_cli.c \
 	rhizome_direct_http.c \
 	rhizome_fetch.c \
+	rhizome_hooks.c \
 	rhizome_http.c \
 	rhizome_packetformats.c \
 	rhizome_store.c \
