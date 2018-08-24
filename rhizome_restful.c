@@ -703,7 +703,7 @@ static int insert_mime_part_header(struct http_request *hr, const struct mime_pa
       }
     }
     // complete early so the client doesn't have to send the payload
-    if (r->payload_status != RHIZOME_PAYLOAD_STATUS_NEW)
+    if (! (r->payload_status == RHIZOME_PAYLOAD_STATUS_NEW || r->payload_status == RHIZOME_PAYLOAD_STATUS_STORED))
       return http_request_rhizome_response(r, 0, NULL);
 
     r->u.insert.payload_size = 0;
@@ -791,7 +791,9 @@ static int insert_mime_part_end(struct http_request *hr)
   else if (r->u.insert.current_part == PART_PAYLOAD) {
     r->u.insert.received_payload = 1;
     DEBUGF(rhizome, "received %s, %zd bytes", PART_PAYLOAD, r->u.insert.payload_size);
-    r->payload_status = rhizome_finish_write(&r->u.insert.write);
+    if (r->payload_status != RHIZOME_PAYLOAD_STATUS_STORED) {
+      r->payload_status = rhizome_finish_write(&r->u.insert.write);
+    }
   } else
     FATALF("current_part = %s", alloca_str_toprint(r->u.insert.current_part));
   r->u.insert.current_part = NULL;
@@ -826,10 +828,12 @@ static int restful_rhizome_insert_end(struct http_request *hr)
     // smaller than the supplied file, for convenience, to allow only the first part of a file to be
     // added as a payload.  But the RESTful interface doesn't allow that.
     assert(!r->manifest->is_journal);
-    if (r->manifest->filesize != RHIZOME_SIZE_UNSET && r->u.insert.payload_size != r->manifest->filesize)
+    if (!(r->manifest->filesize == RHIZOME_SIZE_UNSET || r->payload_status == RHIZOME_PAYLOAD_STATUS_STORED) && r->u.insert.payload_size != r->manifest->filesize)
       r->payload_status = RHIZOME_PAYLOAD_STATUS_WRONG_SIZE;
   }
-  r->payload_status = rhizome_finish_store(&r->u.insert.write, r->manifest, r->payload_status);
+  if (r->payload_status != RHIZOME_PAYLOAD_STATUS_STORED) {
+    r->payload_status = rhizome_finish_store(&r->u.insert.write, r->manifest, r->payload_status);
+  }
   int status_valid = 0;
   switch (r->payload_status) {
     case RHIZOME_PAYLOAD_STATUS_NEW:
