@@ -1570,7 +1570,7 @@ enum rhizome_bundle_status rhizome_add_manifest_to_store(rhizome_manifest *m, rh
 	  m->version
 	);
     if (serverMode != SERVER_NOT_RUNNING) {
-      assert(max_rowid < m->rowid);
+      // assert(max_rowid < m->rowid);
       // detect any bundles added by the CLI
       // due to potential race conditions, we have to do this here
       // even though the CLI will try to send us a MDP_SYNC_RHIZOME message
