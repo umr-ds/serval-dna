@@ -179,11 +179,54 @@ int rhizome_apply_content_hook(rhizome_manifest *m) {
 	return ret;
 }
 
-int rhizome_apply_announce_hook(rhizome_manifest *m, struct subscriber *peer) {
-	// if hook is unset return positivly
-	if (strlen(config.rhizome.announce_hook) == 0) 
-		return 1;
-	
-	return rhizome_excecute_hook_binary(config.rhizome.announce_hook, m, alloca_tohex_sid_t(peer->sid));
-}
+// simple linked list to save the results of the executed announce hooks
+typedef struct announce_cache_s {
+    struct announce_cache_s *prev;
+    sign_public_t bundle_id;
+    sid_t sid;
+    int announce;
+} announce_cache_t;
 
+announce_cache_t *announce_cache;
+
+int rhizome_apply_announce_hook(rhizome_manifest *m, struct subscriber *peer) {
+    // don't announce inactive manifests
+    if (!m->active) {
+        return 0;
+    }
+
+	// if hook is unset return positivly
+	if (strlen(config.rhizome.announce_hook) == 0) {
+		return 1;
+    }
+
+    announce_cache_t *cache;
+    
+    // run over all cache elements
+    for(cache = announce_cache; cache; cache = cache->prev ){
+        if ( !memcmp( &cache->sid,       &peer->sid,             sizeof(sid_t)) &&
+             !memcmp( &cache->bundle_id, &m->keypair.public_key, sizeof(sign_public_t)) ){
+            
+            DEBUGF(rhizome, "Rhizome announce hook cache hit for bid:%s, %s to sid:%s.",
+                alloca_tohex_sid_t(peer->sid),
+                cache->announce?"announce":"retain",
+                alloca_tohex_sid_t(peer->sid));
+            return cache->announce;
+        }
+    }
+
+    cache = malloc(sizeof(announce_cache_t));
+    if (announce_cache) {
+        cache->prev = announce_cache;
+    } else {
+        cache->prev = NULL;
+    }
+
+    announce_cache = cache;
+
+    cache->bundle_id = m->keypair.public_key;
+    cache->sid = peer->sid;
+	cache->announce = rhizome_excecute_hook_binary(config.rhizome.announce_hook, m, alloca_tohex_sid_t(peer->sid));
+
+    return cache->announce;
+}
