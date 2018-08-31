@@ -2,6 +2,15 @@
 #include "debug.h"
 #include "conf.h"
 #include <sys/wait.h>
+#include <time.h>
+
+#ifndef TRUE
+    #define TRUE 1
+#endif
+
+#ifndef FALSE
+    #define FALSE 0
+#endif
 
 /*
  exports a blob, if not existing in filesystem
@@ -84,10 +93,11 @@ enum rhizome_payload_status rhizome_export_manifest(rhizome_manifest *m, char *r
 }
 
 enum rhizome_hook_return {
+    HOOK_NOWAIT = -1,
     HOOK_MATCH = 0,
     HOOK_MISTMATCH = 1,
     HOOK_UNAPPLICABLE = 2,
-    HOOK_ERROR = 4
+    HOOK_ERROR = 4,
 };
 
 /*
@@ -95,56 +105,122 @@ enum rhizome_hook_return {
  if successful, the return value is binary anded to manifest status.
  returns nothing, hooks are not applied if failing
  */
-enum rhizome_hook_return rhizome_excecute_hook_binary(const char bin[1024], rhizome_manifest *m, char *param2){
+enum rhizome_hook_return rhizome_excecute_hook_binary(char **argv, bool_t wait){
 
     int status;
     pid_t pid = vfork();
 
     if (pid == 0) {
         // We're in the child process
-        execlp(bin, bin, m->manifestdata, param2, NULL);
+        // execlp(bin, bin, m->manifestdata, param2, NULL);
+        execvp(argv[0], argv);
         // if exec() was successful, this won't be reached, else print error and exit the child
-        WARNF("executing hook binary went wrong: %s", strerror(errno));
+        WARNF("executing hook binary (%s) went wrong: %s", argv[0], strerror(errno));
 		exit(1);
     }
 
     if (pid > 0) {
-        // parent process calls waitpid() on the child
-        if (waitpid(pid, &status, 0)) {
+        if (wait) {
+            // parent process calls waitpid() on the child
+            if (waitpid(pid, &status, 0)) {
 
-            if (WIFEXITED(status)){
-                DEBUGF(rhizome, "Hook binary executed successfully, exited: %i, status: %i", WIFEXITED(status), WEXITSTATUS(status));
+                if (WIFEXITED(status)){
+                    DEBUGF(rhizome, "Hook binary executed successfully, exited: %i, status: %i", WIFEXITED(status), WEXITSTATUS(status));
 
-                // "...Programs that perform comparison use a different convention: they use status 1 to indicate a mismatch, and status 2 to indicate an inability to compare."
-                if(WEXITSTATUS(status) == HOOK_UNAPPLICABLE){
-                    WARNF("Hook %s indicated inability to be applied on given data (exit 2).", bin);
+                    // "...Programs that perform comparison use a different convention: they use status 1 to indicate a mismatch, and status 2 to indicate an inability to compare."
+                    if(WEXITSTATUS(status) == HOOK_UNAPPLICABLE){
+                        WARNF("Hook %s indicated inability to be applied on given data (exit 2).", argv[0]);
 
-                } else if (WEXITSTATUS(status) == HOOK_MISTMATCH || WEXITSTATUS(status) == HOOK_MATCH){
-                    DEBUGF(rhizome, "Hook %s returned %i", bin, WEXITSTATUS(status));
-                    return WEXITSTATUS(status);
+                    } else if (WEXITSTATUS(status) == HOOK_MISTMATCH || WEXITSTATUS(status) == HOOK_MATCH){
+                        DEBUGF(rhizome, "Hook %s returned %i", argv[0], WEXITSTATUS(status));
+                        return WEXITSTATUS(status);
 
+                    } else {
+                        WARNF("Hook %s returned unknown status: %i", argv[0], WEXITSTATUS(status));
+                    }
                 } else {
-                    WARNF("Hook %s returned unknown status: %i", bin, WEXITSTATUS(status));
+                    WARNF("Executing hook %s went wrong, skipping.", strerror(errno));
                 }
             } else {
-                WARNF("Executing hook %s went wrong, skipping.", strerror(errno));
+                WARNF("Error waiting for child process.");
             }
         } else {
-            WARNF("Error waiting for child process.");
+            return -1;
         }
     } else {
-        WARNF("Couldn't fork, skipped hook %s.", bin);
+        WARNF("Couldn't fork, skipped hook %s.", argv[0]);
     }
 
     return HOOK_ERROR;
+}
+
+/*
+ Data structure to keep hook return values. The elements are supposed to be in ordered by timeout.
+ */
+typedef struct cache_s {
+    struct cache_s *prev;
+    time_t timeout;
+    union {
+        char raw;
+        struct {sign_public_t bundle_id; sid_t sid; int ret;} announce;
+    };
+} cache_t;
+
+/*
+ Iterates through a cache and checks if the entry with key is present.
+ After one timed out element is found, all following are deleted.
+ */
+cache_t* cache_check(cache_t *cache, char *key, unsigned int keylen) {
+    time_t now = time(NULL);
+
+    cache_t *cache_hit = NULL;
+    cache_t *cache_remove = NULL;
+
+    // run over all cache elements
+    for ( ; cache; cache = cache->prev ){
+        // check if prev element times out
+        if (cache->prev && now > cache->prev->timeout) {
+            DEBUG(rhizome, "Cache timeout...");
+            // remove all previous elements
+            cache_remove = cache->prev;
+            cache->prev = NULL;
+            break;
+        }
+
+        if( !memcmp( &cache->raw, key, keylen) ) {
+            cache_hit = cache;
+        }
+    }
+
+    // iterate all items afer cache_remove
+    cache_t *cache_remove_prev = NULL;
+    for ( ; cache_remove; cache_remove = cache_remove_prev) {
+        cache_remove_prev = cache_remove->prev;
+        free(cache_remove);
+    }
+
+    return cache_hit;
+} 
+
+
+void rhizome_apply_encounter_hook(struct subscriber *peer) {
+    // if hook is unset return 
+	if (strlen(config.rhizome.encounter_hook) == 0) 
+		return;
+
+    DEBUGF(rhizome, "Encounter hook peer: %s", alloca_tohex_sid_t(peer->sid));
+    char *argv[] = {config.rhizome.encounter_hook, "", alloca_tohex_sid_t(peer->sid), "", NULL};
+	rhizome_excecute_hook_binary(argv, FALSE);
 }
 
 int rhizome_apply_download_hook(rhizome_manifest *m) {
 	// if hook is unset return positivly
 	if (strlen(config.rhizome.download_hook) == 0) 
 		return 1;
+        
+    char *argv[] = {config.rhizome.download_hook, (char *) m->manifestdata, "", "", NULL};
 	
-	return rhizome_excecute_hook_binary(config.rhizome.download_hook, m, NULL);
+	return rhizome_excecute_hook_binary(argv, TRUE);
 }
 
 int rhizome_apply_content_hook(rhizome_manifest *m) {
@@ -154,14 +230,16 @@ int rhizome_apply_content_hook(rhizome_manifest *m) {
 	// if hook is unset return positivly
 	if (strlen(config.rhizome.content_hook) == 0) 
 		return 1;
+
+    char *argv[] = {config.rhizome.download_hook, (char *) m->manifestdata, "", filepath, NULL};
 	
     filestatus = rhizome_export_or_link_blob(m, filepath);
     if ( filestatus == RHIZOME_PAYLOAD_STATUS_ERROR ){
         WARNF("Rhizome file %s couldn't be exported.", m->name);
-		return 1;
+        argv[3] = "";
     }
 	
-	int ret = rhizome_excecute_hook_binary(config.rhizome.content_hook, m, filepath);
+	int ret = rhizome_excecute_hook_binary(argv, TRUE);
 	
     if (config.rhizome.hook_cleanup) {
         // remove potentially created file
@@ -179,15 +257,8 @@ int rhizome_apply_content_hook(rhizome_manifest *m) {
 	return ret;
 }
 
-// simple linked list to save the results of the executed announce hooks
-typedef struct announce_cache_s {
-    struct announce_cache_s *prev;
-    sign_public_t bundle_id;
-    sid_t sid;
-    int announce;
-} announce_cache_t;
-
-announce_cache_t *announce_cache;
+cache_t *announce_cache = NULL;
+#define ANNOUNCE_CACHE_TIMEOUT_S (5)
 
 int rhizome_apply_announce_hook(rhizome_manifest *m, struct subscriber *peer) {
     // don't announce inactive manifests
@@ -200,33 +271,30 @@ int rhizome_apply_announce_hook(rhizome_manifest *m, struct subscriber *peer) {
 		return 1;
     }
 
-    announce_cache_t *cache;
+    // use stack local cache elem to check for cache hit
+    cache_t cache_elem;
+    cache_elem.announce.bundle_id = m->keypair.public_key;
+    cache_elem.announce.sid = peer->sid;
+
+    // check if this key already has an entry
+    cache_t *cache_hit = cache_check(announce_cache, &cache_elem.raw, sizeof(sign_public_t)+sizeof(sid_t));
+    if (cache_hit) {
+        DEBUGF(rhizome, "Rhizome announce hook cache hit for sid:%s.", alloca_tohex_sid_t(peer->sid));
+        return cache_hit->announce.ret;
+    }
     
-    // run over all cache elements
-    for(cache = announce_cache; cache; cache = cache->prev ){
-        if ( !memcmp( &cache->sid,       &peer->sid,             sizeof(sid_t)) &&
-             !memcmp( &cache->bundle_id, &m->keypair.public_key, sizeof(sign_public_t)) ){
-            
-            DEBUGF(rhizome, "Rhizome announce hook cache hit for bid:%s, %s to sid:%s.",
-                alloca_tohex_sid_t(peer->sid),
-                cache->announce?"announce":"retain",
-                alloca_tohex_sid_t(peer->sid));
-            return cache->announce;
-        }
-    }
+    // create new cache entry, and copy the stub.
+    cache_t *cache_new = malloc(sizeof(cache_t));
+    memcpy(cache_new, &cache_elem, sizeof(cache_t));
 
-    cache = malloc(sizeof(announce_cache_t));
-    if (announce_cache) {
-        cache->prev = announce_cache;
-    } else {
-        cache->prev = NULL;
-    }
+    // execute the filter
+    char *argv[] = {config.rhizome.announce_hook, (char *) m->manifestdata, alloca_tohex_sid_t(peer->sid), "", NULL};
+    cache_new->announce.ret = rhizome_excecute_hook_binary(argv, TRUE);
+    cache_new->timeout = time(NULL) + ANNOUNCE_CACHE_TIMEOUT_S;
 
-    announce_cache = cache;
+    // link the old cache head and set the new
+    cache_new->prev = announce_cache;
+    announce_cache = cache_new;
 
-    cache->bundle_id = m->keypair.public_key;
-    cache->sid = peer->sid;
-	cache->announce = rhizome_excecute_hook_binary(config.rhizome.announce_hook, m, alloca_tohex_sid_t(peer->sid));
-
-    return cache->announce;
+    return cache_new->announce.ret;
 }

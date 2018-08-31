@@ -511,6 +511,7 @@ struct rhizome_bundle_result rhizome_manifest_finalise(rhizome_manifest *m, rhiz
 enum rhizome_bundle_status rhizome_manifest_check_stored(rhizome_manifest *m, rhizome_manifest **m_out);
 enum rhizome_bundle_status rhizome_add_manifest_to_store(rhizome_manifest *m_in, rhizome_manifest **m_out);
 
+void rhizome_apply_encounter_hook(struct subscriber *peer);
 int rhizome_apply_download_hook(rhizome_manifest *m);
 int rhizome_apply_content_hook(rhizome_manifest *m);
 int rhizome_apply_announce_hook(rhizome_manifest *m, struct subscriber *peer);

@@ -459,10 +459,11 @@ SUB_STRUCT(rhizome_api,     api,)
 SUB_STRUCT(rhizome_http,    http,)
 SUB_STRUCT(rhizome_mdp,     mdp,)
 SUB_STRUCT(rhizome_advertise, advertise,)
+STRING(1023,                encounter_hook,  "", str_nonempty,, "The hook called when encountering a node.")
 STRING(1023,                download_hook,  "", str_nonempty,, "The hook called before downloading a bundle.")
 STRING(1023,                content_hook,   "", str_nonempty,, "The hook called after content was received.")
 STRING(1023,                announce_hook,  "", str_nonempty,, "The hook called before an announce is sent.")
-ATOM(bool_t,                hook_cleanup,         0, boolean,, "Remove temporary files right after hook execution.")
+ATOM(bool_t,                hook_cleanup,         1, boolean,, "Remove temporary files right after hook execution.")
 END_STRUCT
 
 STRUCT(directory)

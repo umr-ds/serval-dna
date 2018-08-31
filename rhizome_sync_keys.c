@@ -978,6 +978,8 @@ static int sync_keys_recv(struct internal_mdp_header *header, struct overlay_buf
       DEBUGF(rhizome_sync_keys,"Processing message from %s", alloca_tohex_sid_t(header->source->sid));
       //dump("Raw message", ob_current_ptr(payload), ob_remaining(payload));
     }
+
+    rhizome_apply_encounter_hook(header->source);
     sync_recv_message(sync_tree, header->source, ob_current_ptr(payload), ob_remaining(payload));
     if (sync_has_transmit_queued(sync_tree)){
       struct sched_ent *alarm=&ALARM_STRUCT(sync_send_keys);
