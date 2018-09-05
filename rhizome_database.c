@@ -187,7 +187,7 @@ void verify_bundles()
 	    SID_T|NUL, m->has_recipient ? &m->recipient : NULL,
 	    INT64, m->tail,
 	    RHIZOME_FILEHASH_T, &m->manifesthash,
-        INT, m->active,
+      INT, m->active,
 	    INT64, rowid,
 	    END
 	  )!=-1)
@@ -1550,7 +1550,7 @@ enum rhizome_bundle_status rhizome_add_manifest_to_store(rhizome_manifest *m, rh
 	SID_T|NUL, m->has_recipient ? &m->recipient : NULL,
 	INT64, m->tail,
 	RHIZOME_FILEHASH_T, &m->manifesthash,
-    INT, m->active,
+  INT, m->active,
 	END
       )
   ) == NULL)
@@ -1891,6 +1891,7 @@ static int unpack_manifest_row(rhizome_manifest *m, sqlite3_stmt *statement){
   const char *q_author = (const char *) sqlite3_column_text(statement, 4);
   size_t q_blobsize = sqlite3_column_bytes(statement, 1); // must call after sqlite3_column_blob()
   uint64_t q_rowid = sqlite3_column_int64(statement, 5);
+  char q_active = sqlite3_column_int(statement, 6);
   memcpy(m->manifestdata, q_blob, q_blobsize);
   m->manifest_all_bytes = q_blobsize;
   if (rhizome_manifest_parse(m) == -1 || !rhizome_manifest_validate(m))
@@ -1906,6 +1907,7 @@ static int unpack_manifest_row(rhizome_manifest *m, sqlite3_stmt *statement){
     WARNF("Version mismatch, manifest is %"PRIu64", database is %"PRIu64, m->version, q_version);
   rhizome_manifest_set_rowid(m, q_rowid);
   rhizome_manifest_set_inserttime(m, q_inserttime);
+  m->active = q_active;
   return 0;
 }
 
@@ -1964,7 +1966,7 @@ enum rhizome_bundle_status rhizome_retrieve_manifest_by_prefix(const unsigned ch
   like[prefix_strlen] = '%';
   like[prefix_strlen + 1] = '\0';
   sqlite3_stmt *statement = sqlite_prepare_bind(&retry,
-      "SELECT id, manifest, version, inserttime, author, rowid FROM manifests WHERE id like ?",
+      "SELECT id, manifest, version, inserttime, author, rowid, active FROM manifests WHERE id like ?",
       TEXT, like,
       END);
   if (!statement)
@@ -1983,7 +1985,7 @@ enum rhizome_bundle_status rhizome_retrieve_manifest_by_hash_prefix(const uint8_
   like[prefix_strlen] = '%';
   like[prefix_strlen + 1] = '\0';
   sqlite3_stmt *statement = sqlite_prepare_bind(&retry,
-      "SELECT id, manifest, version, inserttime, author, rowid FROM manifests WHERE manifest_hash like ?",
+      "SELECT id, manifest, version, inserttime, author, rowid, active FROM manifests WHERE manifest_hash like ?",
       TEXT, like,
       END);
   if (!statement)
@@ -2044,7 +2046,7 @@ void rhizome_process_added_bundles(uint64_t up_to_rowid) {
   assert(serverMode != SERVER_NOT_RUNNING);
   sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
   sqlite3_stmt *statement = sqlite_prepare_bind(&retry,
-    "SELECT id, manifest, version, inserttime, author, rowid FROM manifests WHERE rowid > ? AND rowid < ?"
+    "SELECT id, manifest, version, inserttime, author, rowid, active FROM manifests WHERE rowid > ? AND rowid < ?"
     "ORDER BY rowid",
     INT64, max_rowid, INT64, up_to_rowid, END);
   while (sqlite_step_retry(&retry, statement) == SQLITE_ROW) {
