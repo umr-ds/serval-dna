@@ -1717,7 +1717,10 @@ static void http_request_receive(struct http_request *r)
 static void http_request_send_response(struct http_request *r)
 {
   IN();
-  assert(r->phase == TRANSMIT);
+  if(r->phase != TRANSMIT) {
+    http_request_finalise(r);
+	  RETURNVOID;
+  }
   while (1) {
     if (r->response_length != CONTENT_LENGTH_UNKNOWN)
       assert(r->response_sent <= r->response_length);
