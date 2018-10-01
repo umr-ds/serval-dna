@@ -249,7 +249,8 @@ int rhizome_opendb()
 		      "sender text collate nocase, "
 		      "recipient text collate nocase, "
 		      "tail integer, "
-		      "manifest_hash text collate nocase"
+		      "manifest_hash text collate nocase, "
+          "active integer"
 		  ");", END) == -1
       ||	sqlite_exec_void_retry(&retry, 
 		  "CREATE TABLE IF NOT EXISTS FILES("
@@ -1324,9 +1325,10 @@ int rhizome_store_manifest(rhizome_manifest *m)
 	  "sender,"
 	  "recipient,"
 	  "tail,"
-	  "manifest_hash"
+	  "manifest_hash,"
+    "active"
 	") VALUES("
-	  "?,?,?,?,?,?,?,?,?,?,?,?,?,?"
+	  "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?"
 	");",
 	RHIZOME_BID_T, &m->cryptoSignPublic,
 	STATIC_BLOB, m->manifestdata, m->manifest_all_bytes,
@@ -1343,6 +1345,7 @@ int rhizome_store_manifest(rhizome_manifest *m)
 	SID_T|NUL, m->has_recipient ? &m->recipient : NULL,
 	INT64, m->tail,
 	RHIZOME_FILEHASH_T, &m->manifesthash,
+  INT, m->active,
 	END
       )
   ) == NULL)
@@ -1688,6 +1691,7 @@ static enum rhizome_bundle_status unpack_manifest_row(sqlite_retry_state *retry,
   const char *q_author = (const char *) sqlite3_column_text(statement, 4);
   size_t q_blobsize = sqlite3_column_bytes(statement, 1); // must call after sqlite3_column_blob()
   uint64_t q_rowid = sqlite3_column_int64(statement, 5);
+  char q_active = sqlite3_column_int(statement, 6);
   memcpy(m->manifestdata, q_blob, q_blobsize);
   m->manifest_all_bytes = q_blobsize;
   if (rhizome_manifest_parse(m) == -1 || !rhizome_manifest_validate(m))
@@ -1703,6 +1707,7 @@ static enum rhizome_bundle_status unpack_manifest_row(sqlite_retry_state *retry,
     WARNF("Version mismatch, manifest is %"PRIu64", database is %"PRIu64, m->version, q_version);
   rhizome_manifest_set_rowid(m, q_rowid);
   rhizome_manifest_set_inserttime(m, q_inserttime);
+  m->active = q_active;
   return RHIZOME_BUNDLE_STATUS_SAME;
 }
 
@@ -1719,7 +1724,7 @@ enum rhizome_bundle_status rhizome_retrieve_manifest(const rhizome_bid_t *bidp, 
   DEBUGF(rhizome, "retrieve manifest bid=%s", bidp ? alloca_tohex_rhizome_bid_t(*bidp) : "<NULL>");
   sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
   sqlite3_stmt *statement = sqlite_prepare_bind(&retry,
-      "SELECT id, manifest, version, inserttime, author, rowid FROM manifests WHERE id = ?",
+      "SELECT id, manifest, version, inserttime, author, rowid, active FROM manifests WHERE id = ?",
       RHIZOME_BID_T, bidp,
       END);
   if (!statement)
@@ -1746,7 +1751,7 @@ enum rhizome_bundle_status rhizome_retrieve_manifest_by_prefix(const unsigned ch
   like[prefix_strlen] = '%';
   like[prefix_strlen + 1] = '\0';
   sqlite3_stmt *statement = sqlite_prepare_bind(&retry,
-      "SELECT id, manifest, version, inserttime, author, rowid FROM manifests WHERE id like ?",
+      "SELECT id, manifest, version, inserttime, author, rowid, active FROM manifests WHERE id like ?",
       TEXT, like,
       END);
   if (!statement)
@@ -1846,4 +1851,21 @@ int rhizome_is_bar_interesting(const rhizome_bar_t *bar)
 int rhizome_is_manifest_interesting(rhizome_manifest *m)
 {
   return is_interesting(alloca_tohex_rhizome_bid_t(m->cryptoSignPublic), m->version);
+}
+
+int rhizome_change_active(const rhizome_bid_t *bid, int state)
+{
+    sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
+    sqlite3_stmt *statement = sqlite_prepare_bind(&retry,
+                                                  "UPDATE MANIFESTS SET active = ? WHERE id = ?",
+                                                  INT, state,
+                                                  RHIZOME_BID_T, bid,
+                                                  END);
+
+    if (!statement)
+        return -1;
+
+    if (sqlite_exec_retry(&retry, statement) == -1)
+        return -1;
+    return sqlite3_changes(rhizome_db) ? 0 : 1;
 }

@@ -239,6 +239,8 @@ typedef struct rhizome_manifest
   unsigned char manifestdata[MAX_MANIFEST_BYTES];
   rhizome_filehash_t manifesthash;
 
+  char active;
+
 } rhizome_manifest;
 
 /* These setter functions (methods) are needed because the relevant attributes
@@ -517,6 +519,11 @@ struct rhizome_bundle_result rhizome_manifest_finalise(rhizome_manifest *m, rhiz
 enum rhizome_bundle_status rhizome_manifest_check_stored(rhizome_manifest *m, rhizome_manifest **m_out);
 enum rhizome_bundle_status rhizome_add_manifest_to_store(rhizome_manifest *m_in, rhizome_manifest **m_out);
 
+void rhizome_apply_encounter_hook(struct subscriber *peer);
+int rhizome_apply_download_hook(rhizome_manifest *m);
+int rhizome_apply_content_hook(rhizome_manifest *m);
+int rhizome_apply_announce_hook(rhizome_manifest *m, struct subscriber *peer);
+
 void rhizome_bytes_to_hex_upper(unsigned const char *in, char *out, int byteCount);
 int rhizome_find_privatekey(rhizome_manifest *m);
 int rhizome_sign_hash(rhizome_manifest *m, rhizome_signature *out);
@@ -643,6 +650,7 @@ int rhizome_delete_manifest(const rhizome_bid_t *bidp);
 int rhizome_delete_payload(const rhizome_bid_t *bidp);
 int rhizome_delete_file_id(const char *id);
 int rhizome_delete_file(const rhizome_filehash_t *hashp);
+int rhizome_change_active(const rhizome_bid_t *hash, int state);
 
 #define RHIZOME_DONTVERIFY 0
 #define RHIZOME_VERIFY 1

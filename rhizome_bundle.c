@@ -474,6 +474,7 @@ static void rhizome_manifest_clear(rhizome_manifest *m)
   m->filesize = RHIZOME_SIZE_UNSET;
   m->tail = RHIZOME_SIZE_UNSET;
   m->version = 0;
+  m->active = 1;
   // TODO initialise more fields
 }
 
