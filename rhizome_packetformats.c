@@ -144,6 +144,11 @@ uint64_t rhizome_bar_bidprefix_ll(const rhizome_bar_t *bar)
 
 /* Queue an advertisment for a single manifest */
 int rhizome_advertise_manifest(struct subscriber *dest, rhizome_manifest *m){
+  int announce = rhizome_apply_announce_hook(m, dest);
+  if (!announce) {
+    return 0;
+  }
+
   struct overlay_frame *frame = malloc(sizeof(struct overlay_frame));
   bzero(frame,sizeof(struct overlay_frame));
   frame->type = OF_TYPE_RHIZOME_ADVERT;
@@ -264,6 +269,13 @@ int overlay_rhizome_saw_advertisements(struct decode_context *context, struct ov
       assert(m->version == summ.version);
       assert(m->manifest_body_bytes == summ.body_len);
       
+      int download = rhizome_apply_download_hook(m);
+      if (!download) {
+        // ignore for one minute
+        rhizome_queue_ignore_manifest(m->cryptoSignPublic.binary, sizeof m->cryptoSignPublic.binary, 60000);
+        goto next;
+      }
+
       // start the fetch process!
       rhizome_suggest_queue_manifest_import(m, &httpaddr, f->source);
       // the above function will free the manifest structure, make sure we don't free it again

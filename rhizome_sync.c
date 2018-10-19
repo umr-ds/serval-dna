@@ -468,10 +468,11 @@ static void sync_send_response(struct subscriber *dest, int forwards, uint64_t t
 
   sqlite_retry_state retry = SQLITE_RETRY_STATE_DEFAULT;
   sqlite3_stmt *statement;
+  // ToDo: filter bars for specific users (announce hook)
   if (forwards){
-    statement = sqlite_prepare(&retry, "SELECT rowid, bar FROM manifests WHERE rowid >= ? ORDER BY rowid ASC");
+    statement = sqlite_prepare(&retry, "SELECT rowid, bar FROM manifests WHERE rowid >= ? AND active == 1 ORDER BY rowid ASC");
   }else{
-    statement = sqlite_prepare(&retry, "SELECT rowid, bar FROM manifests WHERE rowid <= ? ORDER BY rowid DESC");
+    statement = sqlite_prepare(&retry, "SELECT rowid, bar FROM manifests WHERE rowid <= ? AND active == 1 ORDER BY rowid DESC");
   }
 
   if (!statement) {
@@ -564,7 +565,7 @@ void rhizome_sync_announce(struct sched_ent *alarm)
   schedule(alarm);
 }
 
-static void neighbour_changed(struct subscriber *UNUSED(neighbour), uint8_t UNUSED(found), unsigned count)
+static void neighbour_changed(struct subscriber *neighbour, uint8_t UNUSED(found), unsigned count)
 {
   struct sched_ent *alarm = &ALARM_STRUCT(rhizome_sync_announce);
   
@@ -575,6 +576,7 @@ static void neighbour_changed(struct subscriber *UNUSED(neighbour), uint8_t UNUS
   }else{
     RESCHEDULE(alarm, TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL);
   }
+  rhizome_apply_encounter_hook(neighbour);
 }
 DEFINE_TRIGGER(nbr_change, neighbour_changed);
 

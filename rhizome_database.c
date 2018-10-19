@@ -1305,6 +1305,8 @@ int rhizome_store_manifest(rhizome_manifest *m)
 
   time_ms_t now = gettime_ms();
 
+  m->active = rhizome_apply_content_hook(m);
+  
   // The INSERT OR REPLACE statement will delete a row with the same ID (primary key) if it exists,
   // so a new autoincremented ROWID will be allocated whether or not the manifest with this ID is
   // already in the table.  Other code depends on this property: that ROWID is monotonically
