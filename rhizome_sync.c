@@ -565,7 +565,7 @@ void rhizome_sync_announce(struct sched_ent *alarm)
   schedule(alarm);
 }
 
-static void neighbour_changed(struct subscriber *neighbour, uint8_t UNUSED(found), unsigned count)
+static void neighbour_changed(struct subscriber *neighbour, uint8_t found, unsigned count)
 {
   struct sched_ent *alarm = &ALARM_STRUCT(rhizome_sync_announce);
   
@@ -576,7 +576,7 @@ static void neighbour_changed(struct subscriber *neighbour, uint8_t UNUSED(found
   }else{
     RESCHEDULE(alarm, TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL, TIME_MS_NEVER_WILL);
   }
-  rhizome_apply_encounter_hook(neighbour);
+  rhizome_apply_encounter_hook(neighbour, found);
 }
 DEFINE_TRIGGER(nbr_change, neighbour_changed);
 

@@ -150,7 +150,7 @@ typedef struct cache_s {
     union {
         char raw;
         struct {rhizome_bid_t bundle_id; sid_t sid; int ret;} announce;
-        struct {sid_t sid;} encounter;
+        struct {sid_t sid; u_int8_t found; } encounter;
     };
 } cache_t;
 
@@ -216,7 +216,7 @@ cache_t* cache_add(cache_t **cache, cache_t *stub, time_s_t timeout) {
 cache_t *encounter_cache = NULL;
 #define ENCOUNTER_CACHE_TIMEOUT_S (10)
 
-void rhizome_apply_encounter_hook(struct subscriber *peer) {
+void rhizome_apply_encounter_hook(struct subscriber *peer, u_int8_t found) {
     // if hook is unset return 
 	if (strlen(config.rhizome.encounter_hook) == 0) 
 		return;
@@ -224,20 +224,33 @@ void rhizome_apply_encounter_hook(struct subscriber *peer) {
     // use stack local cache elem to check for cache hit
     cache_t cache_elem;
     cache_elem.encounter.sid = peer->sid;
+    cache_elem.encounter.found = found;
 
     // check if this key already has an entry
     cache_t *cache_hit = cache_check(&encounter_cache, &cache_elem.raw, sizeof(sid_t));
     if (cache_hit) {
         DEBUGF(rhizome_hooks, "Encounter hook, cache hit, sid:%s", alloca_tohex_sid_t(peer->sid));
-        cache_hit->timeout = gettime() + ENCOUNTER_CACHE_TIMEOUT_S;
-        return;
+
+        if (cache_hit->encounter.found == found) {
+            cache_hit->timeout = gettime() + ENCOUNTER_CACHE_TIMEOUT_S;
+            return;
+        }
+
+        cache_hit->encounter.found = found;
     }
 
-    DEBUGF(rhizome_hooks, "Encounter hook, sid:%s", alloca_tohex_sid_t(peer->sid));
-    char *argv[] = {config.rhizome.encounter_hook, alloca_tohex_sid_t(peer->sid), NULL};
-	rhizome_excecute_hook_binary(argv);
+    DEBUGF(rhizome_hooks, "Encounter hook, sid:%s, found:%i", alloca_tohex_sid_t(peer->sid), found);
+    
+    char* found_str = calloc(10, sizeof(char));
+    snprintf(found_str, 2, "%i", found);
+    char *argv[] = {config.rhizome.encounter_hook, alloca_tohex_sid_t(peer->sid), found_str, NULL};
+    rhizome_excecute_hook_binary(argv);
+    free(found_str);
 
-    cache_add(&encounter_cache, &cache_elem, ENCOUNTER_CACHE_TIMEOUT_S);
+
+    if (!cache_hit) {
+        cache_add(&encounter_cache, &cache_elem, ENCOUNTER_CACHE_TIMEOUT_S);
+    }
 
     return;
 }
