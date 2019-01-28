@@ -231,8 +231,9 @@ void rhizome_apply_encounter_hook(struct subscriber *peer, u_int8_t found) {
     if (cache_hit) {
         DEBUGF(rhizome_hooks, "Encounter hook, cache hit, sid:%s", alloca_tohex_sid_t(peer->sid));
 
+        cache_hit->timeout = gettime() + ENCOUNTER_CACHE_TIMEOUT_S;
+
         if (cache_hit->encounter.found == found) {
-            cache_hit->timeout = gettime() + ENCOUNTER_CACHE_TIMEOUT_S;
             return;
         }
 
