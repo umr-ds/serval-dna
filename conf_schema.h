@@ -434,6 +434,7 @@ STRING(1023,                encounter_hook,     "", str_nonempty,, "The hook cal
 STRING(1023,                download_hook,      "", str_nonempty,, "The hook called before downloading a bundle.")
 STRING(1023,                content_hook,       "", str_nonempty,, "The hook called after content was received.")
 STRING(1023,                announce_hook,      "", str_nonempty,, "The hook called before an announce is sent.")
+STRING(1023,                hook_socket,        "", str_nonempty,, "The socket to be opened for a hook.")
 ATOM(bool_t,                hook_cleanup,        1, boolean,, "Remove temporary files right after hook execution.")
 
 END_STRUCT

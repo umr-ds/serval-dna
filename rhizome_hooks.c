@@ -141,6 +141,44 @@ enum rhizome_hook_return rhizome_excecute_hook_binary(char **argv){
     return HOOK_ERROR;
 }
 
+enum rhizome_hook_return rhizome_call_hook_socket(char **argv){
+    int socket_fd;
+
+    if ( (socket_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+        DEBUG(rhizome_hooks, "Couldn't open rhizome hook socket.");
+        return HOOK_ERROR;
+    }
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, config.rhizome.hook_socket, sizeof(addr.sun_path));
+
+    if (connect(socket_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+        DEBUG(rhizome_hooks, "Couldn't connect to rhizome hook socket.");
+        return HOOK_ERROR;
+    }
+
+    int bytes = 0;
+    for (int i = 0; argv[i] != '\0'; i++) {
+        DEBUGF(rhizome_hooks, "Writing bytes to sock: %s", argv[i]);
+        bytes += write(socket_fd, argv[i], strlen(argv[i]));
+        bytes += write(socket_fd, " ", 1);
+    }
+
+    DEBUGF(rhizome_hooks, "Written %i bytes, now reading from socket...", bytes);
+    char ret_byte = '\0';
+    if (0 == (bytes = read(socket_fd, &ret_byte, 1))) {
+        WARNF("Read %i bytes instead of exactly 1, hook failed...", bytes);
+    }
+
+    int ret_value = atoi(&ret_byte);
+    DEBUGF(rhizome_hooks, "Hook %s returned %i", argv[0], ret_value);
+
+    return ret_value;
+}
+
+
 /*
  Data structure to keep hook return values. The elements are supposed to be in ordered by timeout.
  */
@@ -245,7 +283,7 @@ void rhizome_apply_encounter_hook(struct subscriber *peer, u_int8_t found) {
     char* found_str = calloc(10, sizeof(char));
     snprintf(found_str, 2, "%i", found);
     char *argv[] = {config.rhizome.encounter_hook, alloca_tohex_sid_t(peer->sid), found_str, NULL};
-    rhizome_excecute_hook_binary(argv);
+    rhizome_call_hook_socket(argv);
     free(found_str);
 
 
@@ -263,7 +301,7 @@ int rhizome_apply_download_hook(rhizome_manifest *m) {
     
     DEBUGF(rhizome_hooks, "Download hook, bid:%s", alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
     char *argv[] = {config.rhizome.download_hook, (char *) m->manifestdata, NULL};
-	return rhizome_excecute_hook_binary(argv);
+	return rhizome_call_hook_socket(argv);
 }
 
 int rhizome_apply_content_hook(rhizome_manifest *m) {
@@ -283,7 +321,7 @@ int rhizome_apply_content_hook(rhizome_manifest *m) {
     }
 	
     DEBUGF(rhizome_hooks, "Content hook, bid:%s", alloca_tohex_rhizome_bid_t(m->cryptoSignPublic));
-	int ret = rhizome_excecute_hook_binary(argv);
+	int ret = rhizome_call_hook_socket(argv);
 	
     if (config.rhizome.hook_cleanup) {
         // remove potentially created file
@@ -340,10 +378,10 @@ int rhizome_apply_announce_hook(rhizome_manifest *m, struct subscriber *peer) {
 
     if (!cache_new) {
         WARN("Announce hook cache malloc failed, not caching...");
-        return rhizome_excecute_hook_binary(argv);
+        return rhizome_call_hook_socket(argv);
     } else {
         // execute the filter
-        cache_new->announce.ret = rhizome_excecute_hook_binary(argv);
+        cache_new->announce.ret = rhizome_call_hook_socket(argv);
     }
 
     return cache_new->announce.ret;
