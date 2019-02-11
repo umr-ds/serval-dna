@@ -2,6 +2,7 @@
 #include "debug.h"
 #include "conf.h"
 #include <sys/wait.h>
+#include <errno.h>
 
 /*
  exports a blob, if not existing in filesystem
@@ -167,12 +168,22 @@ enum rhizome_hook_return rhizome_call_hook_socket(char **argv){
     }
 
     DEBUGF(rhizome_hooks, "Written %i bytes, now reading from socket...", bytes);
-    char ret_byte = '\0';
-    if (0 == (bytes = read(socket_fd, &ret_byte, 1))) {
-        WARNF("Read %i bytes instead of exactly 1, hook failed...", bytes);
+    char ret_byte[5] = "\0";
+    int bytes_read = read(socket_fd, ret_byte, 4);
+
+    if (bytes_read == -1) {
+	WARNF("Read returned %s", strerror(errno));
+	return HOOK_ERROR;
     }
 
-    int ret_value = atoi(&ret_byte);
+    if (bytes_read == 0) {
+        WARN("Read 0 bytes, hook failed...");
+	return HOOK_ERROR;
+    }
+
+    ret_byte[bytes_read + 1] = '\0';
+
+    int ret_value = atoi(ret_byte);
     DEBUGF(rhizome_hooks, "Hook %s returned %i", argv[0], ret_value);
 
     return ret_value;
