@@ -183,12 +183,15 @@ enum rhizome_hook_return rhizome_call_hook_socket(char **argv) {
 
     int bytes = 0;
     char delimiter = '\0';
-    
+
     for (int i = 0; argv[i] != NULL; i++) {
         DEBUGF(rhizome_hooks, "Writing bytes to sock: %s", argv[i]);
         bytes += write(socket_fd, argv[i], strlen(argv[i]));
         bytes += write(socket_fd, &delimiter, 1);
     }
+
+    char delimiter_eot = '\4';
+    bytes += write(socket_fd, &delimiter_eot, 1);
 
     DEBUGF(rhizome_hooks, "Written %i bytes, now reading from socket...",
            bytes);
